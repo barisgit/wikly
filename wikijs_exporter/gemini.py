@@ -5,32 +5,52 @@ Module for interacting with the Gemini API to analyze wiki content.
 import os
 import time
 import json
-import random  # Add import for random module
+import random
 from typing import Dict, List, Any, Optional, Tuple
 import requests
 from pathlib import Path
-
+from .utils import generate_sitemap, get_page_type
 
 class GeminiAnalyzer:
     """Client for analyzing content using the Gemini API."""
     
-    def __init__(self, api_key: str, debug: bool = False):
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash", debug: bool = False, enhanced_sitemap: bool = True):
         """
         Initialize the GeminiAnalyzer.
         
         Args:
             api_key: Gemini API key
+            model: Gemini model to use (default: gemini-2.0-flash)
             debug: Whether to print debug information
+            enhanced_sitemap: Whether to use enhanced sitemap with more details
         """
         self.api_key = api_key
+        self.model = model
         self.debug = debug
-        self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        self.enhanced_sitemap = enhanced_sitemap
+        self.api_base_url = "https://generativelanguage.googleapis.com/v1beta/models"
+        self.api_url = f"{self.api_base_url}/{self.model}:generateContent"
+        
+        # Store all pages for sitemap generation
+        self.all_pages = []
         
         if self.debug:
             print(f"Debug: Initialized GeminiAnalyzer with API key: {api_key[:4]}...{api_key[-4:]}")
+            print(f"Debug: Using model: {self.model}")
             print(f"Debug: Using model URL: {self.api_url}")
     
-    def analyze_content(self, content: str, style_guide: str, ai_guide: Optional[str] = None) -> Dict[str, Any]:
+    def set_all_pages(self, pages: List[Dict[str, Any]]) -> None:
+        """
+        Set the list of all pages for sitemap generation.
+        
+        Args:
+            pages: List of all wiki pages
+        """
+        self.all_pages = pages
+        if self.debug:
+            print(f"Debug: Set {len(pages)} pages for sitemap generation")
+    
+    def analyze_content(self, content: str, style_guide: str, ai_guide: Optional[str] = None, current_page: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Analyze content against a style guide using Gemini.
         
@@ -38,21 +58,22 @@ class GeminiAnalyzer:
             content: The wiki content to analyze
             style_guide: The style guide to compare against
             ai_guide: Optional AI-specific guidance
+            current_page: Optional metadata about the current page
             
         Returns:
             Dictionary with analysis results
         """
-        prompt = self._create_analysis_prompt(content, style_guide, ai_guide)
+        prompt = self._create_analysis_prompt(content, style_guide, ai_guide, current_page)
         
         if self.debug:
-            print(f"Debug: Sending content of length {len(content)} to Gemini API")
+            print(f"Debug: Sending content of length {len(content)} to Gemini API using model {self.model}")
             
         response = self._call_gemini_api(prompt)
         
         if not response:
             return {
                 "success": False,
-                "message": "Failed to get response from Gemini API",
+                "message": f"Failed to get response from Gemini API (model: {self.model})",
                 "discrepancies": []
             }
             
@@ -61,7 +82,7 @@ class GeminiAnalyzer:
         
         return analysis
     
-    def _create_analysis_prompt(self, content: str, style_guide: str, ai_guide: Optional[str] = None) -> str:
+    def _create_analysis_prompt(self, content: str, style_guide: str, ai_guide: Optional[str] = None, current_page: Optional[Dict[str, Any]] = None) -> str:
         """
         Create a prompt for Gemini to analyze content against a style guide.
         
@@ -69,12 +90,43 @@ class GeminiAnalyzer:
             content: The content to analyze
             style_guide: The style guide to compare against
             ai_guide: Optional AI-specific guidance
+            current_page: Optional metadata about the current page
             
         Returns:
             Prompt string for Gemini
         """
+        # Extract metadata from the content if it's in markdown format
+        metadata = {}
+        content_body = content
+        
+        # Try to extract frontmatter metadata if present
+        if content.startswith('---'):
+            try:
+                # Simple frontmatter extraction
+                fm_end = content.find('---', 3)
+                if fm_end > 0:
+                    frontmatter = content[3:fm_end].strip()
+                    content_body = content[fm_end+3:].strip()
+                    
+                    # Extract key metadata fields
+                    for line in frontmatter.split('\n'):
+                        if ':' in line:
+                            key, value = line.split(':', 1)
+                            metadata[key.strip()] = value.strip()
+            except Exception as e:
+                if self.debug:
+                    print(f"Debug: Error extracting frontmatter: {str(e)}")
+                # Fall back to using the full content
+                content_body = content
+        
+        # Use provided page metadata if available
+        if current_page:
+            for key, value in current_page.items():
+                if key not in metadata:
+                    metadata[key] = value
+        
         prompt = f"""
-You are a content consistency analyzer for a wiki. Your task is to analyze the following wiki content and identify any discrepancies or inconsistencies with the provided style guide.
+You are a content consistency analyzer for a technical wiki. Your task is to analyze wiki content and identify any discrepancies with the provided style guide.
 
 # STYLE GUIDE:
 {style_guide}
@@ -87,21 +139,54 @@ You are a content consistency analyzer for a wiki. Your task is to analyze the f
 {ai_guide}
 """
 
+        # Generate sitemap if we have all pages
+        if self.all_pages:
+            # Generate a sitemap
+            sitemap = generate_sitemap(self.all_pages, enhanced=self.enhanced_sitemap)
+            
+            # Get the page type
+            page_type = "unknown"
+            if "path" in metadata:
+                page_type = get_page_type(metadata["path"], self.all_pages)
+            
+            prompt += f"""
+# WIKI STRUCTURE OVERVIEW:
+The wiki has the following structure. Use this to understand the context and expected content types.
+
+```
+{sitemap}
+```
+
+This page is at path "{metadata.get('path', 'unknown')}" and appears to be a {page_type}.
+"""
+
+        # Add metadata context if available
+        if metadata:
+            prompt += f"""
+# CONTENT METADATA:
+"""
+            for key, value in metadata.items():
+                prompt += f"- {key}: {value}\n"
+
         prompt += f"""
 # CONTENT TO ANALYZE:
-{content}
+{content_body}
 
 # ANALYSIS INSTRUCTIONS:
-1. Identify any discrepancies between the content and the style guide
-2. For each discrepancy, provide:
+1. First, determine what type of page this is (content page, folder page, etc.) based on its structure and purpose
+2. Identify any discrepancies between the content and the style guide
+3. For each discrepancy, provide:
    - A brief description of the issue
-   - The specific section or line where it occurs
+   - The specific section or line where it occurs (be very precise about location)
    - A suggested correction
 
-3. IMPORTANT GUIDELINES:
-   - Do NOT flag HTML content as an issue - Wiki.js supports HTML content as stated in the style guide
-   - Respect the guidelines for acronyms (like BLE, PCB, API) which should maintain their standard capitalization in titles and headings
-   - Only flag issues that are explicitly mentioned in the style guide
+4. IMPORTANT ANALYSIS GUIDELINES:
+   - Be precise about distinguishing issues in metadata (title, path) versus issues in content body
+   - DO NOT report an issue with a title that matches the required format (e.g., don't suggest "Change 'Collaboration' to 'Collaboration'")
+   - If multiple issues are closely related, consolidate them into a single issue
+   - DO NOT flag HTML content as an issue - Wiki.js supports HTML content as stated in the style guide
+   - DO NOT flag acronyms (like BLE, PCB, API) as issues when they follow their standard capitalization
+   - Verify that your issue description, location, and suggestion are all logically consistent
 
 Format your response as a JSON object with the following structure:
 {{
@@ -109,7 +194,7 @@ Format your response as a JSON object with the following structure:
     "discrepancies": [
         {{
             "issue": "Description of the issue",
-            "location": "Section or line reference",
+            "location": "Specific location (precise section or line)",
             "severity": "low|medium|high",
             "suggestion": "Suggested correction"
         }}
@@ -135,6 +220,17 @@ If no discrepancies are found, return an empty array for discrepancies and a com
             "key": self.api_key
         }
         
+        # Configure model settings based on model type
+        temperature = 0.2
+        max_output_tokens = 8192
+        
+        # Adjust parameters based on the model
+        if "gemini-1.5" in self.model:
+            # Gemini 1.5 models can handle longer outputs
+            max_output_tokens = 16384
+            # Slightly lower temperature for more consistent outputs
+            temperature = 0.1
+        
         payload = {
             "contents": [{
                 "parts": [{
@@ -142,10 +238,10 @@ If no discrepancies are found, return an empty array for discrepancies and a com
                 }]
             }],
             "generationConfig": {
-                "temperature": 0.2,
+                "temperature": temperature,
                 "topK": 40,
                 "topP": 0.95,
-                "maxOutputTokens": 8192,
+                "maxOutputTokens": max_output_tokens,
             }
         }
         
@@ -542,8 +638,7 @@ If no discrepancies are found, return an empty array for discrepancies and a com
         Returns:
             List of model identifiers
         """
-        base_url = "https://generativelanguage.googleapis.com/v1beta/models"
-        url = f"{base_url}?key={self.api_key}"
+        url = f"{self.api_base_url}?key={self.api_key}"
         
         try:
             response = requests.get(url, timeout=15)
@@ -566,4 +661,55 @@ If no discrepancies are found, return an empty array for discrepancies and a com
             
         except Exception as e:
             print(f"Error fetching Gemini models: {str(e)}")
-            return [] 
+            return []
+
+    def analyze_pages(self, pages: List[Dict[str, Any]], style_guide: str = None, ai_guide: str = None) -> List[Dict[str, Any]]:
+        """
+        Analyze a list of pages from Wiki.js.
+        
+        Args:
+            pages: List of pages with content
+            style_guide: Style guide content
+            ai_guide: AI-specific instructions
+            
+        Returns:
+            List of analysis results
+        """
+        # Set all pages for sitemap generation
+        self.set_all_pages(pages)
+        
+        results = []
+        
+        for i, page in enumerate(pages):
+            print(f"[{i+1}/{len(pages)}] Analyzing '{page.get('title', 'Untitled page')}'...")
+            
+            # Extract content based on type in the data
+            content = page.get('content', '')
+            if not content:
+                results.append({
+                    "path": page.get("path", "unknown"),
+                    "title": page.get("title", "Untitled"),
+                    "analysis": {
+                        "success": False,
+                        "message": "No content found in page"
+                    }
+                })
+                continue
+            
+            # Analyze the content
+            analysis = self.analyze_content(content, style_guide, ai_guide, page)
+            
+            # Create result
+            result = {
+                "path": page.get("path", "unknown"),
+                "title": page.get("title", "Untitled"),
+                "analysis": analysis
+            }
+            
+            results.append(result)
+            
+            # Add delay between API calls to prevent rate limiting
+            if i < len(pages) - 1:
+                time.sleep(1.0)
+        
+        return results 

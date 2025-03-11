@@ -624,3 +624,170 @@ def load_pages_from_markdown(directory_path: str) -> List[Dict[str, Any]]:
             print(f"Error loading page from {file_path}: {str(e)}")
     
     return pages 
+
+def generate_sitemap(pages: List[Dict[str, Any]], enhanced: bool = False) -> str:
+    """
+    Generate a sitemap visualization from a list of wiki pages.
+    
+    Args:
+        pages: List of page objects with 'path' and 'title' keys
+        enhanced: Whether to include additional information like content size and update date
+        
+    Returns:
+        A string representation of the sitemap in tree format
+    """
+    # Build a tree structure from the page paths
+    tree = {}
+    
+    # Sort pages by path to ensure parent directories come before children
+    sorted_pages = sorted(pages, key=lambda x: x.get('path', ''))
+    
+    # Create a mapping of paths to page info
+    path_to_info = {}
+    for page in sorted_pages:
+        path = page.get('path', '')
+        path_to_info[path] = {
+            'title': page.get('title', 'Untitled'),
+            'updated': page.get('updatedAt', 'unknown date'),
+            'word_count': len(page.get('content', '').split()) if page.get('content') else 0,
+            'content_size': len(page.get('content', '')) if page.get('content') else 0,
+            'description': page.get('description', '')
+        }
+    
+    # Build the tree
+    for page in sorted_pages:
+        path = page.get('path', '')
+        if not path:
+            continue
+            
+        # Skip paths that look like they might be URLs rather than wiki paths
+        if path.startswith('http'):
+            continue
+            
+        # Split the path into segments
+        segments = path.split('/')
+        
+        # Start at the root of the tree
+        current = tree
+        
+        # Build the tree structure
+        for i, segment in enumerate(segments):
+            if segment not in current:
+                current[segment] = {'__children__': {}}
+            
+            # If this is the last segment, mark it as a page and store metadata
+            if i == len(segments) - 1:
+                current[segment]['__is_page__'] = True
+                current[segment]['__title__'] = page.get('title', 'Untitled')
+                current[segment]['__metadata__'] = {
+                    'updated': page.get('updatedAt', 'unknown date'),
+                    'word_count': len(page.get('content', '').split()) if page.get('content') else 0,
+                    'content_size': len(page.get('content', '')) if page.get('content') else 0,
+                    'description': page.get('description', '')
+                }
+            
+            # Move to the next level of the tree
+            current = current[segment]['__children__']
+    
+    # Generate the tree visualization
+    sitemap = []
+    
+    def _generate_tree(node, prefix='', is_last=True, path_segments=None):
+        if path_segments is None:
+            path_segments = []
+            
+        # Add the current node to the sitemap
+        if path_segments:  # Skip the root node
+            full_path = '/'.join(path_segments)
+            is_page = node.get('__is_page__', False)
+            title = node.get('__title__', path_segments[-1])
+            metadata = node.get('__metadata__', {})
+            
+            # Determine if this is a folder page (parent directory)
+            is_folder = bool(node.get('__children__', {}))
+            
+            # Basic line for normal mode
+            line = f"{prefix}{'└── ' if is_last else '├── '}{path_segments[-1]}"
+            
+            if is_page:
+                # Add basic type indicator
+                page_type = "folder page" if is_folder else "content page"
+                line += f" ({page_type}: {title})"
+                
+                # Add enhanced information if requested
+                if enhanced and metadata:
+                    # Format the date nicely if possible
+                    update_date = metadata.get('updated', '')
+                    if update_date and update_date != 'unknown date':
+                        try:
+                            # Try to convert ISO format to more readable format
+                            from datetime import datetime
+                            date_obj = datetime.fromisoformat(update_date.replace('Z', '+00:00'))
+                            formatted_date = date_obj.strftime('%Y-%m-%d')
+                        except Exception:
+                            formatted_date = update_date
+                    else:
+                        formatted_date = update_date
+                    
+                    # Add word count and update date
+                    word_count = metadata.get('word_count', 0)
+                    size_indicator = f"{word_count} words"
+                    
+                    # Add enhanced information in a cleaner format
+                    line += f" [{size_indicator}, updated: {formatted_date}]"
+                    
+                    # Add description if available and not too long
+                    description = metadata.get('description', '')
+                    if description and len(description) > 5:
+                        # Truncate long descriptions
+                        if len(description) > 80:
+                            description = description[:77] + "..."
+                        line += f"\n{prefix}{'    ' if is_last else '│   '} → {description}"
+            
+            sitemap.append(line)
+        
+        # Process children
+        children = sorted([(k, v) for k, v in node.get('__children__', {}).items()])
+        for i, (key, child) in enumerate(children):
+            new_prefix = prefix + ('    ' if is_last else '│   ')
+            new_path = path_segments + [key]
+            _generate_tree(child, new_prefix, i == len(children) - 1, new_path)
+    
+    # Start the tree generation
+    _generate_tree({"__children__": tree})
+    
+    # Add summary information in enhanced mode
+    if enhanced:
+        total_pages = len(sorted_pages)
+        folder_pages = sum(1 for p in sorted_pages if get_page_type(p.get('path', ''), sorted_pages) == 'folder_page')
+        content_pages = total_pages - folder_pages
+        total_words = sum(len(p.get('content', '').split()) for p in sorted_pages if p.get('content'))
+        
+        summary = [
+            "\nSITEMAP SUMMARY:",
+            f"Total pages: {total_pages} ({folder_pages} folder pages, {content_pages} content pages)",
+            f"Total word count: {total_words} words",
+            f"Average page length: {total_words // max(1, content_pages)} words per content page"
+        ]
+        sitemap.extend(summary)
+    
+    return "\n".join(sitemap)
+
+def get_page_type(page_path: str, pages: List[Dict[str, Any]]) -> str:
+    """
+    Determine if a page is likely a folder page or content page based on the sitemap.
+    
+    Args:
+        page_path: Path of the page to check
+        pages: List of all pages
+        
+    Returns:
+        'folder_page' or 'content_page'
+    """
+    # Check if there are any subpages
+    has_children = any(p.get('path', '').startswith(page_path + '/') for p in pages if p.get('path') != page_path)
+    
+    if has_children:
+        return 'folder_page'
+    else:
+        return 'content_page' 
