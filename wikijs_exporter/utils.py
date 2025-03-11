@@ -439,6 +439,181 @@ class ExportMetadata:
         if self.debug:
             print(f"Debug: Reset {len(self.metadata['pages'])} hashes")
 
+class AnalysisMetadata:
+    """Manages metadata about previous analyses for incremental operations."""
+    
+    def __init__(self, metadata_file: str = None, debug: bool = False):
+        """
+        Initialize the AnalysisMetadata manager.
+        
+        Args:
+            metadata_file: File path to store metadata (default: .wikijs_analysis_metadata.json)
+            debug: Whether to print debug information
+        """
+        self.metadata_file = metadata_file or os.path.join(os.getcwd(), '.wikijs_analysis_metadata.json')
+        self.debug = debug
+        self.metadata = self._load_metadata()
+    
+    def _load_metadata(self) -> Dict[str, Any]:
+        """Load metadata from file or initialize if not exists."""
+        try:
+            if os.path.exists(self.metadata_file):
+                with open(self.metadata_file, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+                    if self.debug:
+                        print(f"Debug: Loaded analysis metadata from {self.metadata_file}")
+                    return metadata
+            else:
+                if self.debug:
+                    print(f"Debug: No analysis metadata file found at {self.metadata_file}, initializing new metadata")
+                return {
+                    "last_analysis": None,
+                    "pages": {}
+                }
+        except Exception as e:
+            print(f"Warning: Could not load analysis metadata: {e}")
+            return {
+                "last_analysis": None,
+                "pages": {}
+            }
+    
+    def save_metadata(self, pages: List[Dict[str, Any]]) -> None:
+        """
+        Update and save metadata after an analysis.
+        
+        Args:
+            pages: List of pages that were analyzed
+        """
+        # Update last analysis timestamp
+        self.metadata["last_analysis"] = datetime.now().isoformat()
+        
+        # Update page information
+        for page in pages:
+            path = page.get("path", "")
+            if not path:
+                continue
+                
+            title = page.get("title", "Unknown")
+            content = page.get("content", "")
+            
+            # Calculate content hash
+            content_hash = calculate_content_hash(content) if content else ""
+            
+            # Create or update page metadata
+            page_metadata = {
+                "path": path,
+                "title": title,
+                "content_hash": content_hash,
+                "analysis_time": datetime.now().isoformat()
+            }
+            
+            # Store analysis results if available
+            if "analysis" in page and page["analysis"]:
+                page_metadata["has_analysis"] = True
+                
+                # Store summary for quick reference
+                if isinstance(page["analysis"], dict):
+                    analysis_data = page["analysis"].get("analysis", {})
+                    if isinstance(analysis_data, dict):
+                        score = analysis_data.get("compliance_score")
+                        if score is not None:
+                            page_metadata["compliance_score"] = score
+                            
+                        discrepancies = analysis_data.get("discrepancies", [])
+                        page_metadata["issue_count"] = len(discrepancies)
+            else:
+                page_metadata["has_analysis"] = False
+            
+            # Save the metadata for this page
+            self.metadata["pages"][path] = page_metadata
+        
+        # Save to file
+        try:
+            with open(self.metadata_file, 'w', encoding='utf-8') as f:
+                json.dump(self.metadata, f, indent=2)
+            print(f"✓ Analysis metadata saved to {self.metadata_file}")
+        except Exception as e:
+            print(f"Warning: Could not save analysis metadata: {e}")
+    
+    def get_outdated_pages(self, pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Identify pages that need to be analyzed because they have changed since the last analysis.
+        
+        Args:
+            pages: Current list of pages to analyze
+            
+        Returns:
+            List of pages that need analysis updates
+        """
+        outdated_pages = []
+        
+        print(f"Checking for pages that need analyzing...")
+        if self.debug:
+            print(f"Debug: Checking against {len(self.metadata['pages'])} pages in metadata")
+        
+        for page in pages:
+            path = page.get("path", "")
+            title = page.get("title", "Unknown")
+            content = page.get("content", "")
+            
+            # Reasons for updating
+            update_reason = None
+            
+            # Skip pages with no content
+            if not content:
+                if self.debug:
+                    print(f"Debug: Skipping {title} ({path}) - No content")
+                continue
+            
+            # Calculate current content hash
+            current_hash = calculate_content_hash(content)
+            
+            # Check if page needs analyzing
+            if path not in self.metadata["pages"]:
+                update_reason = "Never analyzed"
+            elif not self.metadata["pages"][path].get("has_analysis", False):
+                update_reason = "Previous analysis failed or not completed"
+            elif not self.metadata["pages"][path].get("content_hash"):
+                update_reason = "Missing content hash"
+            elif self.metadata["pages"][path].get("content_hash") != current_hash:
+                update_reason = "Content changed since last analysis"
+            
+            if update_reason:
+                outdated_pages.append(page)
+                if self.debug or len(outdated_pages) <= 5:  # Limit output for large analyses
+                    print(f"  • {title} ({path}) - {update_reason}")
+                elif len(outdated_pages) == 6:
+                    print(f"  • ... and more (use --debug for full details)")
+            elif self.debug:
+                print(f"Debug: Skipping {title} ({path}) - No changes since last analysis")
+        
+        # Clean up deleted pages
+        current_paths = {page.get("path", "") for page in pages if page.get("path", "")}
+        for path in list(self.metadata["pages"].keys()):
+            if path not in current_paths:
+                if self.debug:
+                    page_info = self.metadata["pages"][path]
+                    print(f"Debug: Removing deleted page from metadata: {page_info['title']} ({path})")
+                del self.metadata["pages"][path]
+        
+        return outdated_pages
+    
+    def get_last_analysis_time(self) -> Optional[str]:
+        """Get the timestamp of the last analysis, if available."""
+        return self.metadata.get("last_analysis")
+
+    def reset_content_hashes(self) -> None:
+        """Reset all content hashes in the metadata to force reanalysis."""
+        if self.debug:
+            print(f"Debug: Resetting all content hashes in analysis metadata")
+            
+        # Reset all hashes to empty strings
+        for path in self.metadata["pages"]:
+            self.metadata["pages"][path]["content_hash"] = ""
+            
+        if self.debug:
+            print(f"Debug: Reset {len(self.metadata['pages'])} hashes")
+
 def save_pages_to_file(pages: List[Dict[str, Any]], output_file: str) -> None:
     """
     Save the list of pages to a JSON file.

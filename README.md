@@ -324,6 +324,34 @@ This will:
 3. Generate a detailed report of discrepancies and suggestions
 4. Save both raw results (JSON) and a readable HTML report
 
+#### Incremental Analysis
+
+By default, the analyze command uses incremental mode, which only analyzes pages that have changed since the last analysis. This significantly improves performance for large wikis:
+
+```bash
+# Incremental analysis (default)
+wikijs analyze --incremental
+
+# Force full analysis of all pages
+wikijs analyze --full
+
+# Force a full analysis regardless of other settings
+wikijs analyze --force-full
+
+# Reset all content hashes (useful if having issues with local change detection)
+wikijs analyze --reset-hashes
+
+# Specify a custom metadata file location
+wikijs analyze --metadata-file /path/to/metadata.json
+```
+
+The analyzer tracks metadata about previous analyses in a `.wikijs_analysis_metadata.json` file, including:
+- Content hashes to detect file changes
+- Analysis timestamps for each page
+- Issue counts and compliance scores
+
+This allows the analyzer to intelligently decide which pages need to be re-analyzed, based on both content changes and previous analysis results.
+
 #### Additional Options
 
 ```bash

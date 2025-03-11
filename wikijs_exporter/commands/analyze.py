@@ -8,7 +8,7 @@ import click
 from typing import Optional, List, Dict, Any
 
 from ..config import DEFAULT_CONFIG_PATH, load_config, create_sample_style_guide
-from ..utils import load_env_variables, load_pages_from_file, load_pages_from_markdown, generate_sitemap
+from ..utils import load_env_variables, load_pages_from_file, load_pages_from_markdown, generate_sitemap, AnalysisMetadata
 from ..gemini import GeminiAnalyzer
 from .report import create_html_report
 
@@ -24,13 +24,18 @@ from .report import create_html_report
 @click.option('--model', help='Gemini model to use')
 @click.option('--delay', type=float, help='Delay between API calls in seconds')
 @click.option('--debug/--no-debug', default=False, help='Enable debug output')
+@click.option('--incremental/--full', default=True, help='Only analyze pages that have changed since last analysis (default: incremental)')
+@click.option('--force-full', is_flag=True, help='Force full analysis instead of incremental')
+@click.option('--reset-hashes', is_flag=True, help='Reset all content hashes in metadata (forces reanalyzing all pages)')
+@click.option('--metadata-file', help='File to store analysis metadata (default: .wikijs_analysis_metadata.json)')
 @click.option('--show-sitemap/--no-sitemap', default=None, help='Show generated sitemap before analysis')
 @click.option('--sitemap-chars', type=int, help='Max characters for sitemap')
 @click.option('--sitemap-detail', type=int, help='Detail level for sitemap (0-3)')
 @click.option('--config-file', help=f'Path to configuration file (default: {DEFAULT_CONFIG_PATH})')
 def analyze_content(format: str, output: Optional[str], report: Optional[str], input: Optional[str], 
                    api_key: Optional[str], style_guide: Optional[str], ai_guide: Optional[str], 
-                   model: Optional[str], delay: Optional[float], debug: bool, show_sitemap: Optional[bool],
+                   model: Optional[str], delay: Optional[float], debug: bool, incremental: bool, force_full: bool,
+                   reset_hashes: bool, metadata_file: Optional[str], show_sitemap: Optional[bool],
                    sitemap_chars: Optional[int], sitemap_detail: Optional[int], config_file: Optional[str]):
     """Analyze exported wiki content for style guide compliance."""
     # Load environment variables
@@ -57,11 +62,25 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
     if show_sitemap is None:
         show_sitemap = config_sitemap.get("show_by_default", False)
     
+    # Get analysis metadata configuration
+    analysis_metadata_file = metadata_file or config["gemini"].get("metadata_file", ".wikijs_analysis_metadata.json")
+    
+    # Force full analysis overrides incremental flag
+    if force_full:
+        incremental = False
+    
     if debug:
+        click.echo(f"Style guide file: {style_guide_file}")
         click.echo(f"Sitemap settings - Show: {show_sitemap}, Max chars: {sitemap_max_chars}, Detail level: {sitemap_detail_level}")
         click.echo(f"Gemini model: {gemini_model}")
         click.echo(f"Gemini API key: {'Set' if gemini_api_key else 'Not set'}")
         click.echo(f"Gemini delay: {gemini_delay}s")
+        if incremental:
+            click.echo("Incremental analysis mode enabled")
+        else:
+            click.echo("Full analysis mode enabled")
+        if reset_hashes:
+            click.echo("Resetting all content hashes")
     
     # Get export directory from config
     export_format = format or config["export"].get("default_format", "markdown")
@@ -97,7 +116,7 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
         try:
             with open(style_guide_file, 'r', encoding='utf-8') as f:
                 style_guide_content = f.read()
-            click.echo(f"Using style guide from {style_guide_file}")
+            click.echo(f"Using style guide from {style_guide_file} ({len(style_guide_content)} characters)")
         except Exception as e:
             click.echo(f"Error reading style guide file: {str(e)}")
             return
@@ -142,8 +161,68 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
         click.echo("Error: No content loaded for analysis.")
         return
     
+    # Initialize analysis metadata manager
+    metadata = AnalysisMetadata(analysis_metadata_file, debug=debug)
+    
+    # Reset content hashes if requested
+    if reset_hashes:
+        metadata.reset_content_hashes()
+        click.echo("Reset content hashes to force reanalysis of all pages")
+    
+    # Determine which pages to analyze (all or just outdated ones)
+    pages_to_analyze = data
+    
+    # Only filter pages if incremental mode is enabled
+    if incremental:
+        last_analysis = metadata.get_last_analysis_time()
+        if last_analysis:
+            click.echo(f"Last analysis: {last_analysis}")
+            
+            # Identify pages that need analysis updates
+            outdated_pages = metadata.get_outdated_pages(data)
+            
+            if outdated_pages:
+                click.echo(f"Found {len(outdated_pages)} pages that need analyzing (out of {len(data)} total pages)")
+                pages_to_analyze = outdated_pages
+            else:
+                click.echo("No pages have changed since the last analysis. Nothing to analyze.")
+                if all(page.get("path", "") in metadata.metadata["pages"] for page in data):
+                    # All existing pages are already in metadata, we can reuse previous results
+                    try:
+                        with open(output_file, 'r', encoding='utf-8') as f:
+                            results = json.load(f)
+                        click.echo(f"Using existing analysis results from {output_file}")
+                        
+                        # Generate HTML report from existing results
+                        try:
+                            create_html_report(results, report_file, style_guide_content)
+                            click.echo(f"HTML report saved to {report_file}")
+                        except Exception as e:
+                            click.echo(f"Error creating HTML report: {str(e)}")
+                        
+                        # Report summary
+                        files_with_issues = sum(1 for r in results if r.get("analysis", {}).get("success", False) and 
+                                            len(r.get("analysis", {}).get("analysis", {}).get("discrepancies", [])) > 0)
+                        total_issues = sum(len(r.get("analysis", {}).get("analysis", {}).get("discrepancies", [])) 
+                                        for r in results if r.get("analysis", {}).get("success", False))
+                        
+                        click.echo(f"Found {total_issues} issues in {files_with_issues} files.")
+                        click.echo(f"Open {report_file} in your browser to view the detailed report.")
+                        return
+                    except Exception as e:
+                        click.echo(f"Could not read existing analysis results: {str(e)}. Performing full analysis.")
+                        pages_to_analyze = data
+        else:
+            click.echo("No previous analysis found. Performing full analysis.")
+    else:
+        click.echo("Full analysis mode enabled. Analyzing all pages.")
+    
+    if not pages_to_analyze:
+        click.echo("No pages to analyze.")
+        return
+    
     # Generate and display sitemap if requested
-    if show_sitemap:
+    if show_sitemap and len(pages_to_analyze) > 0:
         sitemap = generate_sitemap(data, max_chars=sitemap_max_chars, detail_level=sitemap_detail_level)
         click.echo("\nGenerated Wiki Sitemap:")
         click.echo("------------------------")
@@ -152,7 +231,7 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
         click.pause()
     
     # Initialize progress
-    total_pages = len(data)
+    total_pages = len(pages_to_analyze)
     click.echo(f"Analyzing {total_pages} pages using model: {gemini_model}")
     
     # Create analyzer with specified model
@@ -172,7 +251,7 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
     success_count = 0
     error_count = 0
     
-    with click.progressbar(data, label='Analyzing content', length=total_pages) as progress_data:
+    with click.progressbar(pages_to_analyze, label='Analyzing content', length=total_pages) as progress_data:
         for i, page in enumerate(progress_data):
             title = page.get('title', 'Untitled page')
             path = page.get('path', 'unknown')
@@ -231,6 +310,41 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
                     }
                 })
                 error_count += 1
+                
+                # Save intermediate results even for errors
+                try:
+                    with open(output_file, 'w', encoding='utf-8') as f:
+                        json.dump(results, f, indent=2, ensure_ascii=False)
+                except Exception as save_err:
+                    if debug:
+                        click.echo(f"Warning: Could not save intermediate results after error: {str(save_err)}")
+    
+    # Save analysis metadata for the pages we processed
+    metadata.save_metadata(pages_to_analyze)
+    
+    # If we only analyzed some pages but need the complete results set
+    if incremental and len(pages_to_analyze) < len(data):
+        try:
+            # Try to load existing results to merge with new ones
+            if os.path.exists(output_file):
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    existing_results = json.load(f)
+                
+                # Create a map of existing results by path
+                existing_map = {r.get("path"): r for r in existing_results if r.get("path")}
+                
+                # Create a map of new results by path
+                new_map = {r.get("path"): r for r in results if r.get("path")}
+                
+                # Merge results (new results override existing ones)
+                merged_map = {**existing_map, **new_map}
+                
+                # Convert back to list
+                results = list(merged_map.values())
+                
+                click.echo(f"Merged new analysis results with existing ones ({len(results)} total pages)")
+        except Exception as e:
+            click.echo(f"Warning: Could not merge with existing results: {str(e)}")
     
     # Save final results
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -241,6 +355,7 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
     
     # Generate HTML report
     try:
+        click.echo(f"Generating HTML report with style guide (length: {len(style_guide_content)} characters)")
         create_html_report(results, report_file, style_guide_content)
         click.echo(f"HTML report saved to {report_file}")
     except Exception as e:

@@ -35,7 +35,10 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         },
         "gemini": {
             "api_key": None,
-            "delay": 1.0
+            "delay": 1.0,
+            "style_guide_file": "wiki_style_guide.md",
+            "ai_guide_file": "ai_instructions.md",
+            "metadata_file": ".wikijs_analysis_metadata.json"
         },
         "sitemap": {
             "max_chars": 10000,

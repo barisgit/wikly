@@ -8,12 +8,24 @@ import click
 from typing import Dict, List, Any, Optional
 import datetime
 from pathlib import Path
+import re
+
+# Add markdown parser library import
+try:
+    import markdown
+    HAS_MARKDOWN = True
+except ImportError:
+    HAS_MARKDOWN = False
+    pass
+
+# Import config loading utilities
+from ..config import DEFAULT_CONFIG_PATH, load_config
 
 @click.command('report')
 @click.argument('input_file', required=False)
 @click.option('--output', '-o', help='Output path for HTML report')
 @click.option('--style-guide', help='Path to style guide file to include in the report')
-@click.option('--config-file', help='Path to configuration file')
+@click.option('--config-file', help=f'Path to configuration file (default: {DEFAULT_CONFIG_PATH})')
 def generate_report(input_file: Optional[str], output: Optional[str], style_guide: Optional[str], config_file: Optional[str]):
     """Generate an HTML report from existing analysis results."""
     # Determine input and output files
@@ -22,6 +34,18 @@ def generate_report(input_file: Optional[str], output: Optional[str], style_guid
     
     input_path = input_file or default_input
     output_path = output or default_output
+    
+    # Load configuration from file
+    config = load_config(config_file)
+    if config_file:
+        click.echo(f"✓ Loaded configuration from {config_file}")
+    
+    # Get style guide path from config if not provided
+    style_guide_path = style_guide
+    if not style_guide_path and 'gemini' in config:
+        style_guide_path = config["gemini"].get("style_guide_file", "wiki_style_guide.md")
+        if style_guide_path:
+            click.echo(f"Using style guide path from config: {style_guide_path}")
     
     if not os.path.exists(input_path):
         click.echo(f"Error: Input file {input_path} not found.")
@@ -37,16 +61,25 @@ def generate_report(input_file: Optional[str], output: Optional[str], style_guid
     
     # Load style guide if provided
     style_guide_content = None
-    if style_guide and os.path.exists(style_guide):
+    if style_guide_path and os.path.exists(style_guide_path):
         try:
-            with open(style_guide, 'r', encoding='utf-8') as f:
+            with open(style_guide_path, 'r', encoding='utf-8') as f:
                 style_guide_content = f.read()
+            click.echo(f"Loaded style guide from {style_guide_path} ({len(style_guide_content)} characters)")
         except Exception as e:
             click.echo(f"Warning: Could not read style guide file: {str(e)}")
+    else:
+        if style_guide_path:
+            click.echo(f"Warning: Style guide file not found at {style_guide_path}")
+        else:
+            click.echo("No style guide specified. Report will not include style guide content.")
     
     # Create HTML report
-    create_html_report(results, output_path, style_guide_content)
-    click.echo(f"HTML report generated: {output_path}")
+    try:
+        create_html_report(results, output_path, style_guide_content)
+        click.echo(f"HTML report generated: {output_path}")
+    except Exception as e:
+        click.echo(f"Error generating report: {str(e)}")
 
 
 def create_html_report(results: List[Dict[str, Any]], output_file: str, style_guide: Optional[str] = None):
@@ -101,6 +134,39 @@ def create_html_report(results: List[Dict[str, Any]], output_file: str, style_gu
     
     # Generate timestamp
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Format results for different views
+    # Group by folder for sitemap view
+    folder_structure = {}
+    for result in results:
+        path = result.get("path", "")
+        if not path:
+            continue
+            
+        # Break path into parts
+        parts = path.split('/')
+        
+        # Navigate the folder structure and create it if it doesn't exist
+        current = folder_structure
+        for i, part in enumerate(parts):
+            if i == len(parts) - 1:  # Last part (file)
+                if '_files' not in current:
+                    current['_files'] = []
+                current['_files'].append(result)
+            else:  # Folder
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+    
+    # Sort results by compliance score (from worst to best)
+    sorted_by_score = sorted(
+        results, 
+        key=lambda r: (
+            float(r.get("analysis", {}).get("analysis", {}).get("compliance_score", 100))
+            if r.get("analysis", {}).get("success", False) and r.get("analysis", {}).get("analysis", {}).get("compliance_score", "")
+            else 100
+        )
+    )
     
     # Create HTML report
     html = f"""<!DOCTYPE html>
@@ -372,7 +438,7 @@ def create_html_report(results: List[Dict[str, Any]], output_file: str, style_gu
         .timestamp {{
             text-align: right;
             font-size: 0.8em;
-            color: #777;
+            color: #ccc;
             margin-top: 10px;
         }}
         
@@ -393,6 +459,173 @@ def create_html_report(results: List[Dict[str, Any]], output_file: str, style_gu
         details {{
             border-bottom: 1px solid var(--border-color);
             padding-bottom: 10px;
+        }}
+        
+        /* New styles for sitemap view */
+        .sitemap-container {{
+            margin-top: 20px;
+        }}
+        
+        .sitemap-folder {{
+            margin-bottom: 5px;
+        }}
+        
+        .sitemap-folder-header {{
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+            display: flex;
+            align-items: center;
+        }}
+        
+        .sitemap-folder.has-issues > .sitemap-folder-header {{
+            background-color: rgba(243, 156, 18, 0.1);
+        }}
+        
+        .sitemap-content {{
+            margin-left: 20px;
+            padding-left: 10px;
+            border-left: 1px dashed #ddd;
+            display: none;
+        }}
+        
+        .sitemap-toggle {{
+            margin-right: 8px;
+            font-size: 10px;
+            transition: transform 0.2s;
+        }}
+        
+        .sitemap-folder.expanded > .sitemap-folder-header .sitemap-toggle {{
+            transform: rotate(90deg);
+        }}
+        
+        .sitemap-folder.expanded > .sitemap-content {{
+            display: block;
+        }}
+        
+        .sitemap-name {{
+            flex-grow: 1;
+            font-weight: 500;
+        }}
+        
+        .sitemap-count {{
+            color: #e74c3c;
+            font-size: 0.85em;
+            margin-left: 10px;
+        }}
+        
+        .sitemap-file {{
+            padding: 5px 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }}
+        
+        .sitemap-file:hover {{
+            background-color: #f5f5f5;
+        }}
+        
+        .sitemap-file.has-issues {{
+            background-color: rgba(46, 204, 113, 0.05);
+        }}
+        
+        .sitemap-file.severity-medium {{
+            background-color: rgba(243, 156, 18, 0.05);
+        }}
+        
+        .sitemap-file.severity-high {{
+            background-color: rgba(231, 76, 60, 0.05);
+        }}
+        
+        .sitemap-details {{
+            font-size: 0.85em;
+            color: #777;
+        }}
+        
+        .sitemap-no-issues {{
+            font-size: 0.85em;
+            color: #2ecc71;
+        }}
+        
+        .sitemap-error {{
+            background-color: rgba(231, 76, 60, 0.05);
+        }}
+        
+        .sitemap-error-msg {{
+            font-size: 0.85em;
+            color: #e74c3c;
+        }}
+        
+        .severity-pill {{
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 10px;
+            color: white;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-left: 5px;
+        }}
+        
+        .severity-pill.high {{
+            background-color: var(--danger-color);
+        }}
+        
+        .severity-pill.medium {{
+            background-color: var(--warning-color);
+        }}
+        
+        .severity-pill.low {{
+            background-color: var(--success-color);
+        }}
+        
+        /* File details overlay */
+        .overlay {{
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            overflow: auto;
+        }}
+        
+        .overlay-content {{
+            position: relative;
+            background-color: white;
+            margin: 50px auto;
+            padding: 20px;
+            width: 80%;
+            max-width: 1000px;
+            border-radius: 5px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }}
+        
+        .close-button {{
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 28px;
+            font-weight: bold;
+            color: #aaa;
+            cursor: pointer;
+        }}
+        
+        .close-button:hover {{
+            color: #555;
+        }}
+        
+        /* Make files in All Files tab clickable */
+        .file-header {{
+            cursor: pointer;
+        }}
+        
+        .file-header:hover {{
+            background-color: rgba(0,0,0,0.02);
         }}
     </style>
 </head>
@@ -433,6 +666,7 @@ def create_html_report(results: List[Dict[str, Any]], output_file: str, style_gu
         <div class="tab-buttons">
             <button class="tab-button active" data-tab="issues-tab">Issues ({files_with_issues})</button>
             <button class="tab-button" data-tab="all-files-tab">All Files ({total_files})</button>
+            <button class="tab-button" data-tab="sitemap-tab">Sitemap View</button>
             <button class="tab-button" data-tab="style-guide-tab">Style Guide</button>
         </div>
         
@@ -715,6 +949,130 @@ def create_html_report(results: List[Dict[str, Any]], output_file: str, style_gu
             </details>
         """
     
+    # Add new sitemap tab content
+    html += """
+        </div>
+        
+        <div class="tab-content" id="sitemap-tab">
+            <div class="search-container">
+                <input type="text" class="search-input" placeholder="Search in sitemap...">
+            </div>
+            <div class="sitemap-container">
+    """
+    
+    # Recursive function to render the folder structure
+    def render_folder(folder, name="Root", depth=0, path=""):
+        folder_html = ""
+        prefix = "    " * depth
+        
+        # Don't render root if it's not named
+        if depth > 0 or name != "Root":
+            current_path = path + ("/" if path else "") + name
+            
+            # Count issues in this folder and subfolders
+            issue_count = 0
+            for file in folder.get('_files', []):
+                if file.get("analysis", {}).get("success", False):
+                    issue_count += len(file.get("analysis", {}).get("analysis", {}).get("discrepancies", []))
+            
+            folder_class = "sitemap-folder"
+            if issue_count > 0:
+                folder_class += " has-issues"
+                
+            folder_html += f'{prefix}<div class="{folder_class}" data-path="{current_path}">\n'
+            folder_html += f'{prefix}  <div class="sitemap-folder-header">\n'
+            folder_html += f'{prefix}    <span class="sitemap-toggle">▶</span>\n'
+            folder_html += f'{prefix}    <span class="sitemap-name">{name}</span>\n'
+            if issue_count > 0:
+                folder_html += f'{prefix}    <span class="sitemap-count">{issue_count} issue{"s" if issue_count != 1 else ""}</span>\n'
+            folder_html += f'{prefix}  </div>\n'
+            folder_html += f'{prefix}  <div class="sitemap-content">\n'
+        else:
+            current_path = path
+            
+        # Sort subdirectories alphabetically
+        subdirs = [k for k in folder.keys() if k != '_files']
+        subdirs.sort()
+        
+        # First render subdirectories
+        for subdir in subdirs:
+            folder_html += render_folder(folder[subdir], subdir, depth + 1, current_path)
+        
+        # Then render files
+        if '_files' in folder:
+            # Sort files by name
+            files = sorted(folder['_files'], key=lambda f: f.get("title", "").lower())
+            
+            for file in files:
+                title = file.get("title", "Untitled")
+                file_path = file.get("path", "")
+                
+                # If no analysis or analysis failed, show as error
+                if not file.get("analysis", {}).get("success", False):
+                    error_msg = file.get("analysis", {}).get("message", "Analysis failed")
+                    folder_html += f'{prefix}  <div class="sitemap-file sitemap-error" data-path="{file_path}">\n'
+                    folder_html += f'{prefix}    <span class="sitemap-name">{title}</span>\n'
+                    folder_html += f'{prefix}    <span class="sitemap-error-msg">{error_msg}</span>\n'
+                    folder_html += f'{prefix}  </div>\n'
+                    continue
+                
+                # Get analysis data
+                analysis = file.get("analysis", {}).get("analysis", {})
+                discrepancies = analysis.get("discrepancies", [])
+                score = analysis.get("compliance_score", "N/A")
+                
+                # Calculate severity counts
+                high = sum(1 for d in discrepancies if d.get("severity", "").lower() == "high")
+                medium = sum(1 for d in discrepancies if d.get("severity", "").lower() == "medium")
+                low = sum(1 for d in discrepancies if d.get("severity", "").lower() == "low")
+                
+                # Determine file class based on score
+                file_class = "sitemap-file"
+                if discrepancies:
+                    file_class += " has-issues"
+                    if float(score) < 50:
+                        file_class += " severity-high"
+                    elif float(score) < 75:
+                        file_class += " severity-medium"
+                    else:
+                        file_class += " severity-low"
+                
+                # Create file entry
+                folder_html += f'{prefix}  <div class="{file_class}" data-path="{file_path}" data-file-id="file-{file_path.replace("/", "-")}">\n'
+                folder_html += f'{prefix}    <span class="sitemap-name">{title}</span>\n'
+                
+                if discrepancies:
+                    folder_html += f'{prefix}    <span class="sitemap-details">'
+                    folder_html += f'Score: {score}/100'
+                    
+                    if high > 0:
+                        folder_html += f' <span class="severity-pill high">{high}</span>'
+                    if medium > 0:
+                        folder_html += f' <span class="severity-pill medium">{medium}</span>'
+                    if low > 0:
+                        folder_html += f' <span class="severity-pill low">{low}</span>'
+                        
+                    folder_html += '</span>\n'
+                else:
+                    folder_html += f'{prefix}    <span class="sitemap-no-issues">No issues</span>\n'
+                    
+                folder_html += f'{prefix}  </div>\n'
+        
+        # Close the folder div if we opened one
+        if depth > 0 or name != "Root":
+            folder_html += f'{prefix}  </div>\n'
+            folder_html += f'{prefix}</div>\n'
+            
+        return folder_html
+    
+    # Render the full folder structure
+    html += render_folder(folder_structure)
+    
+    html += """
+            </div>
+        </div>
+    """
+    
     # Add style guide tab
     html += """
         </div>
@@ -724,15 +1082,81 @@ def create_html_report(results: List[Dict[str, Any]], output_file: str, style_gu
 """
     
     if style_guide:
-        # Simple conversion of markdown to HTML (very basic)
-        style_guide_html = style_guide.replace("\n\n", "<br><br>")
-        style_guide_html = style_guide_html.replace("# ", "<h1>").replace("\n## ", "</h1><h2>")
-        style_guide_html = style_guide_html.replace("\n### ", "</h2><h3>").replace("\n#### ", "</h3><h4>")
+        # Strip YAML frontmatter if present
+        style_guide_content = strip_yaml_frontmatter(style_guide)
+        
+        # Convert Markdown to HTML
+        if HAS_MARKDOWN:
+            # Use the markdown library for better conversion
+            style_guide_html = markdown.markdown(style_guide_content, extensions=['tables', 'fenced_code'])
+        else:
+            # Fallback to simple conversion if markdown library not available
+            style_guide_html = simple_markdown_to_html(style_guide_content)
         
         html += f"""
                 <div class="style-guide-content">
                     {style_guide_html}
                 </div>
+                <style>
+                    .style-guide-content {{
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        line-height: 1.6;
+                    }}
+                    .style-guide-content h1, 
+                    .style-guide-content h2, 
+                    .style-guide-content h3, 
+                    .style-guide-content h4 {{
+                        margin-top: 1.5em;
+                        margin-bottom: 0.8em;
+                        font-weight: 600;
+                        color: #2c3e50;
+                    }}
+                    .style-guide-content h1 {{ font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }}
+                    .style-guide-content h2 {{ font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }}
+                    .style-guide-content h3 {{ font-size: 1.25em; }}
+                    .style-guide-content h4 {{ font-size: 1em; }}
+                    .style-guide-content p, .style-guide-content li {{ font-size: 16px; margin-bottom: 6px; }}
+                    .style-guide-content ul, .style-guide-content ol {{ padding-left: 2em; margin-bottom: 0.4em; }}
+                    .style-guide-content code {{
+                        font-family: 'Courier New', Courier, monospace;
+                        padding: 0.2em 0.4em;
+                        background-color: rgba(27,31,35,.05);
+                        border-radius: 3px;
+                        font-size: 85%;
+                    }}
+                    .style-guide-content pre {{
+                        background-color: #f6f8fa;
+                        border-radius: 3px;
+                        padding: 8px;
+                        overflow: auto;
+                        line-height: 1.45;
+                        margin-bottom: 16px;
+                    }}
+                    .style-guide-content pre code {{
+                        background-color: transparent;
+                        padding: 0;
+                        margin: 0;
+                        font-size: 100%;
+                        word-break: normal;
+                        white-space: pre;
+                        overflow: visible;
+                    }}
+                    .style-guide-content a {{
+                        color: #0366d6;
+                        text-decoration: none;
+                    }}
+                    .style-guide-content a:hover {{
+                        text-decoration: underline;
+                    }}
+                    .style-guide-content blockquote {{
+                        padding: 0 1em;
+                        color: #6a737d;
+                        border-left: 0.25em solid #dfe2e5;
+                        margin: 0 0 8px 0;
+                    }}
+                    .style-guide-content strong {{ font-weight: 600; }}
+                    .style-guide-content em {{ font-style: italic; }}
+                </style>
         """
     else:
         html += """
@@ -741,6 +1165,13 @@ def create_html_report(results: List[Dict[str, Any]], output_file: str, style_gu
     
     html += """
             </div>
+        </div>
+    </div>
+    
+    <div id="file-details-overlay" class="overlay">
+        <div class="overlay-content">
+            <span class="close-button">&times;</span>
+            <div id="file-details-content"></div>
         </div>
     </div>
     
@@ -758,6 +1189,104 @@ def create_html_report(results: List[Dict[str, Any]], output_file: str, style_gu
             });
         });
         
+        // Make folders expandable in sitemap view
+        document.querySelectorAll('.sitemap-folder-header').forEach(header => {
+            header.addEventListener('click', e => {
+                const folder = header.closest('.sitemap-folder');
+                folder.classList.toggle('expanded');
+                e.stopPropagation();
+            });
+        });
+        
+        // Pre-expand top level folders
+        document.querySelectorAll('.sitemap-container > .sitemap-folder').forEach(folder => {
+            folder.classList.add('expanded');
+        });
+        
+        // Add file details view functionality
+        const overlay = document.getElementById('file-details-overlay');
+        const detailsContent = document.getElementById('file-details-content');
+        const closeButton = document.querySelector('.close-button');
+        
+        // Close overlay when clicking the X
+        closeButton.addEventListener('click', () => {
+            overlay.style.display = 'none';
+        });
+        
+        // Close overlay when clicking outside the content
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                overlay.style.display = 'none';
+            }
+        });
+        
+        // Add a helper function for querySelector with contains
+        function querySelectorContains(baseSelector, text) {
+            const elements = document.querySelectorAll(baseSelector);
+            const results = [];
+            
+            elements.forEach(el => {
+                if (el.textContent.includes(text)) {
+                    results.push(el);
+                }
+            });
+            
+            return results;
+        }
+        
+        // Open file details when clicking on a file in sitemap
+        document.querySelectorAll('.sitemap-file').forEach(file => {
+            file.addEventListener('click', () => {
+                const fileId = file.dataset.fileId;
+                if (!fileId) return;
+                
+                const fileId_clean = fileId.replace('file-', '').replace(/-/g, '/');
+                const fileName = file.querySelector('.sitemap-name').textContent;
+                
+                // Find the matching file from all files or issues tab
+                let fileDetails = querySelectorContains('.file.searchable-item h3', fileName);
+                if (fileDetails.length > 0) {
+                    const fileElement = fileDetails[0].closest('.file');
+                    if (fileElement) {
+                        detailsContent.innerHTML = fileElement.outerHTML;
+                        overlay.style.display = 'block';
+                    }
+                }
+            });
+        });
+        
+        // Make file headers in "All Files" tab clickable to show details
+        document.querySelectorAll('#all-files-tab .file-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const title = header.querySelector('h4').textContent;
+                const path = header.querySelector('.file-path').textContent;
+                
+                // Find if this file has any issues
+                let fileDetails = querySelectorContains('.file.searchable-item h3', title);
+                if (fileDetails.length > 0) {
+                    const fileElement = fileDetails[0].closest('.file');
+                    if (fileElement) {
+                        detailsContent.innerHTML = fileElement.outerHTML;
+                        overlay.style.display = 'block';
+                    }
+                } else {
+                    // If no issues found, just show basic info
+                    detailsContent.innerHTML = `
+                        <div class="file">
+                            <div class="file-header">
+                                <div>
+                                    <h3>${title}</h3>
+                                    <p class="file-path">${path}</p>
+                                </div>
+                            </div>
+                            <p><strong>No issues found in this file.</strong></p>
+                        </div>
+                    `;
+                    overlay.style.display = 'block';
+                }
+            });
+        });
+        
         // Search functionality
         document.querySelectorAll('.search-input').forEach(input => {
             input.addEventListener('input', (e) => {
@@ -772,24 +1301,103 @@ def create_html_report(results: List[Dict[str, Any]], output_file: str, style_gu
                         item.style.display = 'none';
                     }
                 });
+                
+                // Special handling for sitemap tab
+                if (tabContent.id === 'sitemap-tab') {
+                    // First hide all folders and files
+                    tabContent.querySelectorAll('.sitemap-folder, .sitemap-file').forEach(item => {
+                        item.style.display = 'none';
+                    });
+                    
+                    // Then show those that match and their parents
+                    tabContent.querySelectorAll('.sitemap-folder, .sitemap-file').forEach(item => {
+                        const text = item.textContent.toLowerCase();
+                        if (text.includes(searchText)) {
+                            // Show this item
+                            item.style.display = '';
+                            
+                            // If it's a folder, expand it
+                            if (item.classList.contains('sitemap-folder')) {
+                                item.classList.add('expanded');
+                            }
+                            
+                            // Show all parent folders
+                            let parent = item.parentElement;
+                            while (parent) {
+                                if (parent.classList.contains('sitemap-content')) {
+                                    parent.style.display = 'block';
+                                    const parentFolder = parent.closest('.sitemap-folder');
+                                    if (parentFolder) {
+                                        parentFolder.style.display = '';
+                                        parentFolder.classList.add('expanded');
+                                    }
+                                }
+                                parent = parent.parentElement;
+                            }
+                        }
+                    });
+                }
             });
         });
         
         // Severity filtering
         document.querySelectorAll('.filter-button').forEach(button => {
             button.addEventListener('click', () => {
-                // Update active button
-                document.querySelectorAll('.filter-button').forEach(btn => btn.classList.remove('active'));
-                button.classList.add('active');
+                // Handle "All" button specially
+                if (button.dataset.severity === 'all') {
+                    const wasActive = button.classList.contains('active');
+                    
+                    // Clear all active states
+                    document.querySelectorAll('.filter-button').forEach(btn => {
+                        btn.classList.remove('active');
+                    });
+                    
+                    // If "All" was not active, activate it
+                    if (!wasActive) {
+                        button.classList.add('active');
+                    }
+                } else {
+                    // Toggle active state for this button
+                    button.classList.toggle('active');
+                    
+                    // Deactivate the "all" button when a specific filter is active
+                    document.querySelector('.filter-button[data-severity="all"]').classList.remove('active');
+                }
                 
-                const severity = button.dataset.severity;
+                // Get all active severity filters
+                const activeFilters = Array.from(document.querySelectorAll('.filter-button.active'))
+                    .map(btn => btn.dataset.severity)
+                    .filter(severity => severity !== 'all');
                 
-                // Show/hide items based on severity
+                // If no filters are active, make "all" active
+                if (activeFilters.length === 0) {
+                    document.querySelector('.filter-button[data-severity="all"]').classList.add('active');
+                }
+                
+                // Get the final set of active filters after potential adjustments
+                const finalActiveFilters = Array.from(document.querySelectorAll('.filter-button.active'))
+                    .map(btn => btn.dataset.severity);
+                
+                // Show/hide items based on active filters
                 document.querySelectorAll('.severity-item').forEach(item => {
-                    if (severity === 'all' || item.dataset.severity === severity) {
+                    if (finalActiveFilters.includes('all') || finalActiveFilters.includes(item.dataset.severity)) {
                         item.style.display = '';
                     } else {
                         item.style.display = 'none';
+                    }
+                });
+                
+                // Hide files that have no visible issues
+                document.querySelectorAll('.file.searchable-item').forEach(file => {
+                    const visibleIssues = Array.from(file.querySelectorAll('.severity-item')).filter(item => {
+                        return item.style.display !== 'none';
+                    });
+                    const totalIssues = file.querySelectorAll('.severity-item');
+                    
+                    if (visibleIssues.length === 0 && totalIssues.length > 0) {
+                        file.style.display = 'none';
+                    } else {
+                        file.style.display = '';
                     }
                 });
             });
@@ -804,4 +1412,61 @@ def create_html_report(results: List[Dict[str, Any]], output_file: str, style_gu
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(html)
     except Exception as e:
-        raise Exception(f"Error writing HTML report: {str(e)}") 
+        raise Exception(f"Error writing HTML report: {str(e)}")
+
+def strip_yaml_frontmatter(text: str) -> str:
+    """
+    Strip YAML frontmatter from text.
+    
+    Args:
+        text: Text that may contain YAML frontmatter
+        
+    Returns:
+        Text with frontmatter removed
+    """
+    if text.startswith('---'):
+        parts = text.split('---', 2)
+        if len(parts) >= 3:
+            return parts[2].lstrip()
+    return text
+
+def simple_markdown_to_html(text: str) -> str:
+    """
+    Simple conversion of markdown to HTML for when the markdown library is not available.
+    
+    Args:
+        text: Markdown text
+        
+    Returns:
+        HTML text
+    """
+    # Convert headers
+    text = re.sub(r'^# (.+)$', r'<h1>\1</h1>', text, flags=re.MULTILINE)
+    text = re.sub(r'^## (.+)$', r'<h2>\1</h2>', text, flags=re.MULTILINE)
+    text = re.sub(r'^### (.+)$', r'<h3>\1</h3>', text, flags=re.MULTILINE)
+    text = re.sub(r'^#### (.+)$', r'<h4>\1</h4>', text, flags=re.MULTILINE)
+    
+    # Convert paragraphs
+    paragraphs = re.split(r'\n\n+', text)
+    for i, p in enumerate(paragraphs):
+        if not p.startswith('<h') and not p.startswith('<ul') and not p.startswith('<ol'):
+            paragraphs[i] = f'<p>{p}</p>'
+    
+    text = '\n\n'.join(paragraphs)
+    
+    # Convert bold and italic
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+    
+    # Convert lists
+    text = re.sub(r'^\* (.+)$', r'<li>\1</li>', text, flags=re.MULTILINE)
+    text = re.sub(r'(<li>.+</li>\n)+', r'<ul>\g<0></ul>', text, flags=re.MULTILINE)
+    
+    # Convert links
+    text = re.sub(r'\[(.+?)\]\((.+?)\)', r'<a href="\2">\1</a>', text)
+    
+    # Convert code blocks
+    text = re.sub(r'```(.+?)```', r'<pre><code>\1</code></pre>', text, flags=re.DOTALL)
+    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+    
+    return text 
