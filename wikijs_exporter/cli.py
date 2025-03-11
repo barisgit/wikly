@@ -7,7 +7,7 @@ import os
 from typing import Optional
 
 from .api import WikiJSAPI
-from .utils import load_env_variables, save_pages_to_file, save_pages_to_markdown, save_pages_to_html
+from .utils import load_env_variables, save_pages_to_file, save_pages_to_markdown, save_pages_to_html, ExportMetadata
 from .gemini import GeminiAnalyzer
 
 @click.group()
@@ -96,8 +96,13 @@ def list_pages(url: Optional[str], token: Optional[str], output: str, debug: boo
 @click.option('--debug/--no-debug', default=False, help='Enable debug output')
 @click.option('--format', type=click.Choice(['json', 'markdown', 'html']), default='json', 
               help='Output format (json, markdown, or html)')
-def export_pages(url: Optional[str], token: Optional[str], output: str, delay: float, debug: bool, format: str):
-    """Fetch all pages with their content from Wiki.js."""
+@click.option('--incremental/--full', default=True, help='Only export pages that have changed since last export (default: incremental)')
+@click.option('--force-full', is_flag=True, help='Force full export instead of incremental')
+@click.option('--reset-hashes', is_flag=True, help='Reset all content hashes in metadata (forces recomputing all hashes)')
+@click.option('--metadata-file', help='File to store export metadata (default: .wikijs_export_metadata.json)')
+def export_pages(url: Optional[str], token: Optional[str], output: str, delay: float, debug: bool, 
+                format: str, incremental: bool, force_full: bool, reset_hashes: bool, metadata_file: Optional[str]):
+    """Fetch pages with their content from Wiki.js."""
     # Load environment variables if not provided as options
     env_url, env_token, env_gemini_key = load_env_variables()
     
@@ -114,18 +119,64 @@ def export_pages(url: Optional[str], token: Optional[str], output: str, delay: f
         click.echo("Error: API token is required. Provide it using --token or set WIKIJS_API_KEY in .env file.")
         return
     
+    # Force full export overrides incremental flag
+    if force_full:
+        incremental = False
+    
     if debug:
         click.echo("Debug mode enabled")
+        if incremental:
+            click.echo("Incremental export mode enabled")
+        else:
+            click.echo("Full export mode enabled")
+        if reset_hashes:
+            click.echo("Resetting all content hashes")
     
     # Create API client
     api = WikiJSAPI(base_url, api_token, debug)
     
-    # Fetch pages with content
-    pages = api.fetch_all_pages_with_content(delay)
+    # Initialize export metadata manager
+    metadata = ExportMetadata(metadata_file, debug=debug)
     
-    if not pages:
+    # Reset hashes if requested
+    if reset_hashes:
+        metadata.reset_hashes()
+        
+    last_export = metadata.get_last_export_time()
+    
+    if last_export and incremental:
+        click.echo(f"Last export: {last_export}")
+    
+    # Fetch all pages (metadata only)
+    all_pages = api.fetch_pages()
+    
+    if not all_pages:
         click.echo("No pages found or error occurred.")
         return
+    
+    # Determine output directory based on format
+    output_dir = None
+    if format != 'json':
+        output_dir = output if os.path.isdir(output) else os.path.splitext(output)[0]
+    
+    if incremental and last_export:
+        # Identify pages that need content updates
+        outdated_pages = metadata.get_outdated_pages(all_pages, output_dir=output_dir)
+        click.echo(f"Found {len(outdated_pages)} pages that need updating (out of {len(all_pages)} total pages)")
+        
+        # Fetch content only for outdated pages
+        pages = api.fetch_pages_with_content_incremental(outdated_pages, all_pages, delay)
+    else:
+        # Perform a full export
+        click.echo("Performing full export...")
+        pages = api.fetch_all_pages_with_content(delay)
+    
+    if not pages:
+        click.echo("No pages exported or error occurred.")
+        return
+    
+    # Save export metadata
+    metadata.save_metadata(pages)
     
     # Export in the chosen format
     if format == 'json':

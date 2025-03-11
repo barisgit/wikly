@@ -70,6 +70,16 @@ To export all pages with their full content:
 wikijs export --output wiki_export.json
 ```
 
+By default, the exporter uses incremental mode, which only fetches content for pages that have been updated since the last export. This significantly speeds up subsequent exports.
+
+The incremental export also detects local changes to exported files. If you modify a file after exporting it, the exporter will detect the change and re-fetch the content from Wiki.js during the next export.
+
+To force a full export of all pages:
+
+```bash
+wikijs export --force-full
+```
+
 #### Export Formats
 
 You can export in different formats using the `--format` option:
@@ -84,6 +94,46 @@ wikijs export --format markdown --output wiki_markdown
 # Export as HTML files
 wikijs export --format html --output wiki_html
 ```
+
+#### Additional Export Options
+
+```bash
+# Set delay between API requests
+wikijs export --delay 0.5
+
+# Toggle between incremental and full exports
+wikijs export --incremental  # Default, only fetches updated content
+wikijs export --full         # Fetches all content
+
+# Force a full export regardless of other settings
+wikijs export --force-full
+
+# Reset all content hashes (useful if having issues with local change detection)
+wikijs export --reset-hashes
+
+# Specify a custom metadata file location
+wikijs export --metadata-file /path/to/metadata.json
+
+# Enable verbose debugging output
+wikijs export --debug
+```
+
+The exporter tracks metadata about previous exports in a `.wikijs_export_metadata.json` file, including:
+- The last update time for each page
+- Content hashes to detect local modifications
+- Original paths and titles from Wiki.js
+
+This allows the exporter to intelligently decide which pages need to be re-fetched during incremental exports, based on both server-side updates and local file changes.
+
+##### Handling Edited Files
+
+When you edit a file locally after exporting it, the exporter will detect the changes during the next export by comparing content hashes. There are three possible outcomes:
+
+1. **Re-fetch the page**: By default, the exporter will detect local changes and re-fetch the page from Wiki.js.
+2. **Keep local changes**: You can manually update the metadata file to match your local changes.
+3. **Force reset all hashes**: Use `--reset-hashes` option to force recomputing all content hashes.
+
+For complex workflows with many local edits, you may want to set up version control on your exported files.
 
 ### Analyzing Content for Style Compliance
 
@@ -143,69 +193,3 @@ The tool implements several strategies to handle Gemini API rate limits:
 These features help ensure your analysis completes successfully even with large content sets.
 
 #### Listing Available Models
-
-To see which Gemini models are available for use with the analyze command:
-
-```bash
-wikijs list-models
-```
-
-This will show all available Gemini models that you can use with the `--model` option.
-
-#### Style Guide Format
-
-The style guide should be a Markdown file containing content guidelines. An example is provided in `style_guide_example.md`.
-
-## Getting an API Token
-
-To use this tool, you'll need to generate an API token from your Wiki.js instance:
-
-1. Log in to your Wiki.js instance as an administrator
-2. Go to Administration > API Access
-3. Click "Create New API Key"
-4. Enter a name for the token (e.g., "Wiki Exporter")
-5. Set the appropriate permissions (only read permissions are needed)
-6. Copy the generated token and use it with the tool
-
-For content analysis, you'll also need a Google Gemini API key:
-
-1. Visit [Google AI Studio](https://makersuite.google.com/)
-2. Sign up or log in to your Google account
-3. Navigate to the API keys section
-4. Create a new API key
-5. Copy the key and add it to your `.env` file or use the `--gemini-key` option
-
-## Security Considerations
-
-- Store your API token securely
-- Do not commit the `.env` file to version control
-- Use an API token with the minimal required permissions (read-only)
-
-## Output Formats
-
-### JSON
-
-The JSON format includes all page data in a single file:
-
-- Page metadata (ID, title, path, tags, etc.)
-- Content (both raw and rendered)
-- Author information
-- Creation and update timestamps
-
-### Markdown
-
-When exporting as Markdown:
-
-- Each page is saved as a separate `.md` file
-- Files are organized in directories matching the original wiki structure
-- Metadata is included as YAML front matter
-- Raw Markdown content is preserved as-is
-
-### HTML
-
-When exporting as HTML:
-
-- Each page is saved as a separate `.html` file
-- Files are organized in directories matching the original wiki structure
-- Basic styling is included for readability
-- Rendered HTML content maintains formatting and links

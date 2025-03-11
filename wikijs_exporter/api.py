@@ -292,4 +292,59 @@ class WikiJSAPI:
         
         print(f"\nContent fetching complete. Successfully fetched {successful} pages, failed to fetch {failed} pages.")
         
-        return full_pages 
+        return full_pages
+    
+    def fetch_pages_with_content_incremental(self, outdated_pages: List[Dict[str, Any]], all_pages: List[Dict[str, Any]], delay: float = 0.1) -> List[Dict[str, Any]]:
+        """
+        Fetch content only for pages that have been updated since the last export.
+        
+        Args:
+            outdated_pages: List of pages that need content updates
+            all_pages: Complete list of all pages (with metadata only)
+            delay: Delay in seconds between requests to avoid rate limiting
+            
+        Returns:
+            List of all pages with updated content for outdated pages
+        """
+        if not outdated_pages:
+            print("No pages need content updates.")
+            return all_pages
+        
+        print(f"Fetching content for {len(outdated_pages)} updated pages...")
+        
+        # Create a mapping of page IDs to pages
+        outdated_page_ids = {page.get("id"): page for page in outdated_pages}
+        
+        # Fetch the content for outdated pages
+        successful = 0
+        failed = 0
+        
+        for i, page in enumerate(outdated_pages):
+            page_id = page.get("id")
+            title = page.get("title", "Unknown")
+            
+            print(f"[{i+1}/{len(outdated_pages)}] Fetching content for '{title}' (ID: {page_id})...", end="", flush=True)
+            
+            # Fetch the content
+            full_page = self.fetch_page_content(page_id)
+            
+            if full_page:
+                # Update the page in the all_pages list with the full content
+                for j, existing_page in enumerate(all_pages):
+                    if existing_page.get("id") == page_id:
+                        all_pages[j] = full_page
+                        break
+                
+                print(" ✓")
+                successful += 1
+            else:
+                print(" ✗")
+                failed += 1
+            
+            # Add a delay to avoid overwhelming the server
+            if i < len(outdated_pages) - 1:
+                time.sleep(delay)
+        
+        print(f"\nContent fetching complete. Successfully fetched {successful} updated pages, failed to fetch {failed} pages.")
+        
+        return all_pages 
