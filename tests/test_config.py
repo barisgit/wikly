@@ -8,7 +8,7 @@ import yaml
 import pytest
 from pathlib import Path
 
-from wikijs_exporter.cli import load_config, DEFAULT_CONFIG_PATH
+from wikijs_exporter.config import load_config, DEFAULT_CONFIG_PATH
 
 
 def test_load_config_default_values():
@@ -22,8 +22,16 @@ def test_load_config_default_values():
         assert "wikijs" in config
         assert "export" in config
         assert "gemini" in config
-        assert config["wikijs"]["host"] == ""
-        assert config["wikijs"]["api_key"] == ""
+        assert config["wikijs"]["host"] is None
+        assert config["wikijs"]["api_key"] is None
+        assert config["wikijs"]["use_env_vars"] is True
+        assert config["export"]["default_format"] == "markdown"
+        assert config["export"]["default_output"] == "wiki_export"
+        assert config["export"]["delay"] == 0.1
+        assert config["export"]["metadata_file"] == ".wikijs_export_metadata.json"
+        assert config["gemini"]["api_key"] is None
+        assert config["gemini"]["default_model"] == "gemini-2.0-flash"
+        assert config["gemini"]["delay"] == 1.0
 
 
 def test_load_config_with_file():
@@ -97,9 +105,12 @@ def test_load_config_partial_values():
         assert config["export"]["default_format"] == "html"
         
         # Verify default values are used for missing fields
-        assert config["wikijs"]["api_key"] == ""  # Default
+        assert config["wikijs"]["api_key"] is None  # Default
+        assert config["wikijs"]["use_env_vars"] is True  # Default
         assert "default_output" in config["export"]
         assert "delay" in config["export"]
         assert "metadata_file" in config["export"]
         assert "gemini" in config
-        assert "api_key" in config["gemini"] 
+        assert "api_key" in config["gemini"]
+        assert "default_model" in config["gemini"]
+        assert "delay" in config["gemini"] 
