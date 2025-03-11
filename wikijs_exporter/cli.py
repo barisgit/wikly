@@ -99,7 +99,7 @@ def list_pages(url: Optional[str], token: Optional[str], output: str, debug: boo
 def export_pages(url: Optional[str], token: Optional[str], output: str, delay: float, debug: bool, format: str):
     """Fetch all pages with their content from Wiki.js."""
     # Load environment variables if not provided as options
-    env_token, env_url = load_env_variables()
+    env_url, env_token, env_gemini_key = load_env_variables()
     
     # Use CLI options if provided, fall back to environment variables
     api_token = token or env_token
@@ -145,16 +145,20 @@ def export_pages(url: Optional[str], token: Optional[str], output: str, delay: f
 @click.option('--output', default='analysis_results.json', help='Output file for raw results (default: analysis_results.json)')
 @click.option('--report', default='analysis_report.html', help='Output file for HTML report (default: analysis_report.html)')
 @click.option('--gemini-key', help='Gemini API key (overrides environment variable)')
-@click.option('--model', default='gemini-1.5-flash', help='Gemini model to use (default: gemini-1.5-flash)')
+@click.option('--model', default='gemini-2.0-flash', help='Gemini model to use (default: gemini-1.5-flash)')
 @click.option('--delay', type=float, default=1.0, help='Delay in seconds between API calls (default: 1.0)')
+@click.option('--ai-guide', type=click.Path(exists=True, file_okay=True, dir_okay=False), help='Optional AI-specific guidance file')
 @click.option('--debug/--no-debug', default=False, help='Enable debug output')
 def analyze_content(content_dir: str, style_guide_path: str, output: str, report: str, 
-                    gemini_key: Optional[str], model: str, delay: float, debug: bool):
+                    gemini_key: Optional[str], model: str, delay: float, ai_guide: Optional[str], debug: bool):
     """
     Analyze wiki content against a style guide using Gemini AI.
     
     CONTENT_DIR is the directory containing wiki content files (.md or .html)
     STYLE_GUIDE_PATH is the path to a file containing the style guide rules
+    
+    An optional AI-specific guide file can be provided using --ai-guide to give
+    additional instructions to the AI analyzer without changing the human-focused style guide.
     """
     _, _, env_gemini_key = load_env_variables()
     
@@ -168,7 +172,8 @@ def analyze_content(content_dir: str, style_guide_path: str, output: str, report
         click.echo(f"Debug: Using Gemini API key: {api_key[:4]}...{api_key[-4:]}")
         click.echo(f"Debug: Using model: {model}")
         click.echo(f"Debug: Content directory: {content_dir}")
-        click.echo(f"Debug: Style guide path: {style_guide_path}")
+        if ai_guide:
+            click.echo(f"Debug: Using AI guide file: {ai_guide}")
     
     # Create the analyzer
     analyzer = GeminiAnalyzer(api_key=api_key, debug=debug)
@@ -192,6 +197,8 @@ def analyze_content(content_dir: str, style_guide_path: str, output: str, report
     
     click.echo(f"Starting analysis of wiki content in {content_dir}...")
     click.echo(f"Using style guide: {style_guide_path}")
+    if ai_guide:
+        click.echo(f"Using AI guide: {ai_guide}")
     click.echo(f"Analysis results will be saved to: {output}")
     click.echo(f"HTML report will be saved to: {report}")
     
@@ -200,7 +207,8 @@ def analyze_content(content_dir: str, style_guide_path: str, output: str, report
         content_dir=content_dir,
         style_guide_path=style_guide_path,
         output_file=output,
-        delay=delay
+        delay=delay,
+        ai_guide_path=ai_guide
     )
     
     # Create readable report

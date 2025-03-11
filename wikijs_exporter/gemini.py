@@ -5,6 +5,7 @@ Module for interacting with the Gemini API to analyze wiki content.
 import os
 import time
 import json
+import random  # Add import for random module
 from typing import Dict, List, Any, Optional, Tuple
 import requests
 from pathlib import Path
@@ -29,18 +30,19 @@ class GeminiAnalyzer:
             print(f"Debug: Initialized GeminiAnalyzer with API key: {api_key[:4]}...{api_key[-4:]}")
             print(f"Debug: Using model URL: {self.api_url}")
     
-    def analyze_content(self, content: str, style_guide: str) -> Dict[str, Any]:
+    def analyze_content(self, content: str, style_guide: str, ai_guide: Optional[str] = None) -> Dict[str, Any]:
         """
         Analyze content against a style guide using Gemini.
         
         Args:
             content: The wiki content to analyze
             style_guide: The style guide to compare against
+            ai_guide: Optional AI-specific guidance
             
         Returns:
             Dictionary with analysis results
         """
-        prompt = self._create_analysis_prompt(content, style_guide)
+        prompt = self._create_analysis_prompt(content, style_guide, ai_guide)
         
         if self.debug:
             print(f"Debug: Sending content of length {len(content)} to Gemini API")
@@ -59,13 +61,14 @@ class GeminiAnalyzer:
         
         return analysis
     
-    def _create_analysis_prompt(self, content: str, style_guide: str) -> str:
+    def _create_analysis_prompt(self, content: str, style_guide: str, ai_guide: Optional[str] = None) -> str:
         """
         Create a prompt for Gemini to analyze content against a style guide.
         
         Args:
             content: The content to analyze
             style_guide: The style guide to compare against
+            ai_guide: Optional AI-specific guidance
             
         Returns:
             Prompt string for Gemini
@@ -75,7 +78,16 @@ You are a content consistency analyzer for a wiki. Your task is to analyze the f
 
 # STYLE GUIDE:
 {style_guide}
+"""
 
+        # Add AI guide if provided
+        if ai_guide:
+            prompt += f"""
+# ADDITIONAL AI GUIDANCE:
+{ai_guide}
+"""
+
+        prompt += f"""
 # CONTENT TO ANALYZE:
 {content}
 
@@ -137,26 +149,59 @@ If no discrepancies are found, return an empty array for discrepancies and a com
             }
         }
         
-        try:
-            response = requests.post(
-                self.api_url,
-                params=params,
-                json=payload,
-                headers={"Content-Type": "application/json"}
-            )
-            
-            if self.debug:
-                print(f"Debug: Gemini API response status: {response.status_code}")
-            
-            response.raise_for_status()
-            return response.json()
-            
-        except requests.exceptions.RequestException as e:
-            print(f"Error calling Gemini API: {str(e)}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"Response status code: {e.response.status_code}")
-                print(f"Response content: {e.response.text[:1000]}")
-            return None
+        # Exponential backoff parameters
+        max_retries = 5
+        retry_count = 0
+        base_delay = 2  # Base delay in seconds
+        max_delay = 60  # Maximum delay in seconds
+        
+        while retry_count <= max_retries:
+            try:
+                if retry_count > 0:
+                    # Calculate exponential backoff delay
+                    delay = min(max_delay, base_delay * (2 ** (retry_count - 1)))
+                    if self.debug:
+                        print(f"Debug: Retrying after {delay} seconds (attempt {retry_count}/{max_retries})...")
+                    time.sleep(delay)
+                
+                response = requests.post(
+                    self.api_url,
+                    params=params,
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                
+                if self.debug:
+                    print(f"Debug: Gemini API response status: {response.status_code}")
+                
+                # If we get a 429, retry with exponential backoff
+                if response.status_code == 429:
+                    retry_count += 1
+                    print(f"Rate limit exceeded (429). Retrying ({retry_count}/{max_retries})...")
+                    continue
+                
+                # For other errors or success, proceed as usual
+                response.raise_for_status()
+                return response.json()
+                
+            except requests.exceptions.RequestException as e:
+                # If it's a rate limit error, retry with backoff
+                if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+                    retry_count += 1
+                    if retry_count <= max_retries:
+                        print(f"Rate limit exceeded (429). Retrying ({retry_count}/{max_retries})...")
+                        continue
+                
+                # For other errors or if we've exceeded max retries
+                print(f"Error calling Gemini API: {str(e)}")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"Response status code: {e.response.status_code}")
+                    print(f"Response content: {e.response.text[:1000]}")
+                return None
+        
+        # If we've exhausted all retries
+        print(f"Failed after {max_retries} retries. Giving up on this request.")
+        return None
     
     def _parse_gemini_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -219,7 +264,7 @@ If no discrepancies are found, return an empty array for discrepancies and a com
     
     def analyze_files(self, content_dir: str, style_guide_path: str, 
                       output_file: str, batch_size: int = 1, 
-                      delay: float = 1.0) -> List[Dict[str, Any]]:
+                      delay: float = 1.0, ai_guide_path: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Analyze multiple files against a style guide.
         
@@ -229,6 +274,7 @@ If no discrepancies are found, return an empty array for discrepancies and a com
             output_file: Path to save analysis results
             batch_size: Number of files to analyze in a batch (1 means process one by one)
             delay: Delay between API calls in seconds
+            ai_guide_path: Optional path to an AI-specific guidance file
             
         Returns:
             List of analysis results for each file
@@ -243,6 +289,19 @@ If no discrepancies are found, return an empty array for discrepancies and a com
         except Exception as e:
             print(f"Error reading style guide file: {str(e)}")
             return []
+        
+        # Read the AI guide if provided
+        ai_guide = None
+        if ai_guide_path:
+            try:
+                with open(ai_guide_path, 'r', encoding='utf-8') as f:
+                    ai_guide = f.read()
+                    
+                if self.debug:
+                    print(f"Debug: Read AI guide from {ai_guide_path} ({len(ai_guide)} chars)")
+            except Exception as e:
+                print(f"Error reading AI guide file: {str(e)}")
+                # Continue with just the style guide if AI guide can't be read
         
         # Find all .md and .html files in the content directory
         content_files = []
@@ -269,7 +328,7 @@ If no discrepancies are found, return an empty array for discrepancies and a com
                     content = f.read()
                 
                 # Analyze the content
-                analysis = self.analyze_content(content, style_guide)
+                analysis = self.analyze_content(content, style_guide, ai_guide)
                 
                 # Add file information
                 file_result = {
@@ -290,7 +349,12 @@ If no discrepancies are found, return an empty array for discrepancies and a com
                 
                 # Add delay between API calls
                 if i < len(content_files) - 1:
-                    time.sleep(delay)
+                    # Add jitter to delay to help prevent rate limiting
+                    jitter = random.uniform(0.5, 1.5)  # Random factor between 0.5 and 1.5
+                    adjusted_delay = delay * jitter
+                    if self.debug:
+                        print(f"Debug: Waiting {adjusted_delay:.2f}s before next file (base: {delay}s, jitter: {jitter:.2f}x)")
+                    time.sleep(adjusted_delay)
                     
             except Exception as e:
                 print(f" Error: {str(e)}")

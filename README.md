@@ -111,9 +111,36 @@ wikijs analyze content_dir style_guide.md --model gemini-1.5-pro
 # Add delay between API calls to avoid rate limits
 wikijs analyze content_dir style_guide.md --delay 2.0
 
+# Provide a separate AI-specific guidance file
+wikijs analyze content_dir style_guide.md --ai-guide ai_specific_guide.md
+
 # Enable debug output
 wikijs analyze content_dir style_guide.md --debug
 ```
+
+#### AI Guide
+
+You can optionally provide an AI-specific guidance file that contains instructions specifically for the AI analyzer, separate from the human-readable style guide. This allows you to:
+
+- Give more technical instructions to the AI without cluttering the human style guide
+- Provide examples of correct and incorrect content for better AI understanding
+- Add contextual information that helps the AI make better judgments
+
+Example usage:
+```bash
+wikijs analyze content_dir human_style_guide.md --ai-guide ai_specific_instructions.md
+```
+
+#### Rate Limiting Protection
+
+The tool implements several strategies to handle Gemini API rate limits:
+
+- Configurable delay between file processing (use `--delay` option)
+- Random jitter added to delays to prevent synchronized requests
+- Exponential backoff for 429 (Too Many Requests) errors
+- Automatic retries when rate limits are hit (up to 5 attempts)
+
+These features help ensure your analysis completes successfully even with large content sets.
 
 #### Listing Available Models
 
