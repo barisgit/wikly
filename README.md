@@ -10,6 +10,7 @@ A command-line tool to export content from a Wiki.js instance using the GraphQL 
 - Support for environment variables and configuration files
 - Read-only operation (won't modify your wiki)
 - Export content with original paths and hierarchy
+- Content analysis with Gemini AI to ensure style guide compliance
 
 ## Installation
 
@@ -34,10 +35,12 @@ You can configure the exporter using either:
 1. Environment variables in a `.env` file:
    - `WIKIJS_HOST`: Your Wiki.js base URL (e.g., `https://wiki.example.com`)
    - `WIKIJS_API_KEY`: Your API token
+   - `GEMINI_API_KEY`: Your Google Gemini API key (for content analysis)
 
 2. Command line options (these override any environment variables):
    - `--url`: Your Wiki.js base URL
    - `--token`: Your API token
+   - `--gemini-key`: Your Gemini API key
 
 ## Usage
 
@@ -82,11 +85,49 @@ wikijs export --format markdown --output wiki_markdown
 wikijs export --format html --output wiki_html
 ```
 
+### Analyzing Content for Style Compliance
+
+The `analyze` command lets you check your wiki content against a style guide using Google's Gemini AI:
+
+```bash
+wikijs analyze path/to/exported/content style_guide.md
+```
+
+This will:
+1. Process all Markdown and HTML files in the specified directory
+2. Compare each file against the provided style guide
+3. Generate a detailed report of discrepancies and suggestions
+4. Save both raw results (JSON) and a readable HTML report
+
 #### Additional Options
 
-- `--delay`: Set delay between requests to avoid overwhelming the server (in seconds)
-- `--debug`: Enable detailed debug output
-- `--help`: Show help for any command
+```bash
+# Set a custom output location for results
+wikijs analyze content_dir style_guide.md --output analysis.json --report report.html
+
+# Use a specific Gemini model
+wikijs analyze content_dir style_guide.md --model gemini-1.5-pro
+
+# Add delay between API calls to avoid rate limits
+wikijs analyze content_dir style_guide.md --delay 2.0
+
+# Enable debug output
+wikijs analyze content_dir style_guide.md --debug
+```
+
+#### Listing Available Models
+
+To see which Gemini models are available for use with the analyze command:
+
+```bash
+wikijs list-models
+```
+
+This will show all available Gemini models that you can use with the `--model` option.
+
+#### Style Guide Format
+
+The style guide should be a Markdown file containing content guidelines. An example is provided in `style_guide_example.md`.
 
 ## Getting an API Token
 
@@ -98,6 +139,14 @@ To use this tool, you'll need to generate an API token from your Wiki.js instanc
 4. Enter a name for the token (e.g., "Wiki Exporter")
 5. Set the appropriate permissions (only read permissions are needed)
 6. Copy the generated token and use it with the tool
+
+For content analysis, you'll also need a Google Gemini API key:
+
+1. Visit [Google AI Studio](https://makersuite.google.com/)
+2. Sign up or log in to your Google account
+3. Navigate to the API keys section
+4. Create a new API key
+5. Copy the key and add it to your `.env` file or use the `--gemini-key` option
 
 ## Security Considerations
 

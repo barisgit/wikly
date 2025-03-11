@@ -10,19 +10,20 @@ from dotenv import load_dotenv
 
 def load_env_variables():
     """
-    Load environment variables from .env file
+    Load environment variables from .env file.
     
     Returns:
-        Tuple of (api_token, base_url) from environment variables
+        Tuple of (base_url, api_token)
     """
-    # Load .env file if it exists
+    # Try to load from .env file
     load_dotenv()
     
-    # Get environment variables
-    api_token = os.environ.get('WIKIJS_API_KEY')
-    base_url = os.environ.get('WIKIJS_HOST')
+    # Get variables
+    base_url = os.getenv("WIKIJS_HOST")
+    api_token = os.getenv("WIKIJS_API_KEY")
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
     
-    return api_token, base_url
+    return base_url, api_token, gemini_api_key
 
 def save_pages_to_file(pages: List[Dict[str, Any]], output_file: str) -> None:
     """
@@ -77,7 +78,12 @@ def save_pages_to_markdown(pages: List[Dict[str, Any]], output_dir: str) -> None
         
         # Add front matter with metadata
         front_matter = "---\n"
-        for key in ['title', 'description', 'createdAt', 'updatedAt', 'author', 'tags']:
+        # Explicitly add path and updatedAt at the beginning of metadata
+        front_matter += f"path: {page.get('path', '')}\n"
+        front_matter += f"updated: {page.get('updatedAt', '')}\n"
+        
+        # Add other important metadata
+        for key in ['title', 'description', 'createdAt', 'author', 'tags']:
             if key == 'author' and 'authorName' in page:
                 front_matter += f"author: {page['authorName']}\n"
             elif key == 'tags' and 'tags' in page and page['tags']:

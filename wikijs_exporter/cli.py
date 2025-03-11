@@ -8,6 +8,7 @@ from typing import Optional
 
 from .api import WikiJSAPI
 from .utils import load_env_variables, save_pages_to_file, save_pages_to_markdown, save_pages_to_html
+from .gemini import GeminiAnalyzer
 
 @click.group()
 @click.version_option()
@@ -22,7 +23,7 @@ def cli():
 def test_connection(url: Optional[str], token: Optional[str], debug: bool):
     """Test connection to the Wiki.js GraphQL API."""
     # Load environment variables if not provided as options
-    env_token, env_url = load_env_variables()
+    env_url, env_token, env_gemini_key = load_env_variables()
     
     # Use CLI options if provided, fall back to environment variables
     api_token = token or env_token
@@ -57,7 +58,7 @@ def test_connection(url: Optional[str], token: Optional[str], debug: bool):
 def list_pages(url: Optional[str], token: Optional[str], output: str, debug: bool):
     """Fetch a list of all pages (metadata only) from Wiki.js."""
     # Load environment variables if not provided as options
-    env_token, env_url = load_env_variables()
+    env_url, env_token, env_gemini_key = load_env_variables()
     
     # Use CLI options if provided, fall back to environment variables
     api_token = token or env_token
@@ -137,6 +138,132 @@ def export_pages(url: Optional[str], token: Optional[str], output: str, delay: f
         # If output is a file, use it as a directory name instead
         output_dir = output if os.path.isdir(output) else os.path.splitext(output)[0]
         save_pages_to_html(pages, output_dir)
+
+@cli.command('analyze')
+@click.argument('content_dir', type=click.Path(exists=True, file_okay=False, dir_okay=True))
+@click.argument('style_guide_path', type=click.Path(exists=True, file_okay=True, dir_okay=False))
+@click.option('--output', default='analysis_results.json', help='Output file for raw results (default: analysis_results.json)')
+@click.option('--report', default='analysis_report.html', help='Output file for HTML report (default: analysis_report.html)')
+@click.option('--gemini-key', help='Gemini API key (overrides environment variable)')
+@click.option('--model', default='gemini-1.5-flash', help='Gemini model to use (default: gemini-1.5-flash)')
+@click.option('--delay', type=float, default=1.0, help='Delay in seconds between API calls (default: 1.0)')
+@click.option('--debug/--no-debug', default=False, help='Enable debug output')
+def analyze_content(content_dir: str, style_guide_path: str, output: str, report: str, 
+                    gemini_key: Optional[str], model: str, delay: float, debug: bool):
+    """
+    Analyze wiki content against a style guide using Gemini AI.
+    
+    CONTENT_DIR is the directory containing wiki content files (.md or .html)
+    STYLE_GUIDE_PATH is the path to a file containing the style guide rules
+    """
+    _, _, env_gemini_key = load_env_variables()
+    
+    api_key = gemini_key or env_gemini_key
+    
+    if not api_key:
+        click.echo("Error: Gemini API key not provided. Please set GEMINI_API_KEY in .env file or use --gemini-key option.")
+        return
+    
+    if debug:
+        click.echo(f"Debug: Using Gemini API key: {api_key[:4]}...{api_key[-4:]}")
+        click.echo(f"Debug: Using model: {model}")
+        click.echo(f"Debug: Content directory: {content_dir}")
+        click.echo(f"Debug: Style guide path: {style_guide_path}")
+    
+    # Create the analyzer
+    analyzer = GeminiAnalyzer(api_key=api_key, debug=debug)
+    
+    # Set the model to use
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    if model != "gemini-1.5-flash":
+        analyzer.api_url = api_url
+        if debug:
+            click.echo(f"Debug: Set custom model URL: {api_url}")
+    
+    # Check if style guide exists
+    if not os.path.exists(style_guide_path):
+        click.echo(f"Error: Style guide file not found: {style_guide_path}")
+        return
+    
+    # Check if content directory exists
+    if not os.path.exists(content_dir):
+        click.echo(f"Error: Content directory not found: {content_dir}")
+        return
+    
+    click.echo(f"Starting analysis of wiki content in {content_dir}...")
+    click.echo(f"Using style guide: {style_guide_path}")
+    click.echo(f"Analysis results will be saved to: {output}")
+    click.echo(f"HTML report will be saved to: {report}")
+    
+    # Run the analysis
+    results = analyzer.analyze_files(
+        content_dir=content_dir,
+        style_guide_path=style_guide_path,
+        output_file=output,
+        delay=delay
+    )
+    
+    # Create readable report
+    click.echo("Creating HTML report...")
+    analyzer.create_readable_report(results, report)
+    
+    click.echo(f"Analysis complete! Processed {len(results)} files.")
+    click.echo(f"Results saved to: {output}")
+    click.echo(f"HTML report saved to: {report}")
+    
+    # Count issues
+    files_with_issues = sum(1 for r in results if r.get("analysis", {}).get("success", False) and 
+                           len(r.get("analysis", {}).get("analysis", {}).get("discrepancies", [])) > 0)
+    total_issues = sum(len(r.get("analysis", {}).get("analysis", {}).get("discrepancies", [])) 
+                      for r in results if r.get("analysis", {}).get("success", False))
+    
+    click.echo(f"Found {total_issues} issues in {files_with_issues} files.")
+    click.echo(f"Open {report} in your browser to view the detailed report.")
+
+@cli.command('list-models')
+@click.option('--gemini-key', help='Gemini API key (overrides environment variable)')
+@click.option('--debug/--no-debug', default=False, help='Enable debug output')
+def list_gemini_models(gemini_key: Optional[str], debug: bool):
+    """List available Gemini models for content analysis."""
+    _, _, env_gemini_key = load_env_variables()
+    
+    api_key = gemini_key or env_gemini_key
+    
+    if not api_key:
+        click.echo("Error: Gemini API key not provided. Please set GEMINI_API_KEY in .env file or use --gemini-key option.")
+        return
+    
+    if debug:
+        click.echo(f"Debug: Using Gemini API key: {api_key[:4]}...{api_key[-4:]}")
+    
+    # Create the analyzer
+    analyzer = GeminiAnalyzer(api_key=api_key, debug=debug)
+    
+    click.echo("Fetching available Gemini models...")
+    models = analyzer.list_available_models()
+    
+    if not models:
+        click.echo("No Gemini models found or error retrieving models.")
+        return
+    
+    click.echo("\nAvailable Gemini Models:")
+    click.echo("-" * 80)
+    
+    for model in models:
+        name = model.get('name', '').split('/')[-1]
+        display_name = model.get('displayName', 'Unknown')
+        description = model.get('description', 'No description')
+        version = model.get('version', 'Unknown')
+        
+        click.echo(f"• {name}")
+        click.echo(f"  Display Name: {display_name}")
+        click.echo(f"  Version: {version}")
+        click.echo(f"  Description: {description}")
+        click.echo("")
+    
+    click.echo("-" * 80)
+    click.echo(f"Total models available: {len(models)}")
+    click.echo("\nTo use a specific model, update the GeminiAnalyzer.api_url in wikijs_exporter/gemini.py")
 
 if __name__ == '__main__':
     cli() 
