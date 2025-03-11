@@ -15,7 +15,7 @@ from ..utils import (
     save_pages_to_html,
     ExportMetadata
 )
-from ..api import WikiJSAPI
+from ..api import WikilyAPI
 
 @click.command('export')
 @click.option('--url', help='Base URL of your Wiki.js instance')
@@ -44,8 +44,8 @@ def export_pages(url: Optional[str], token: Optional[str], output: Optional[str]
     config = load_config(config_file)
     
     # Precedence: 1) Command-line args, 2) Config file, 3) Environment variables
-    api_token = token or config["wikijs"]["api_key"] or env_token
-    base_url = url or config["wikijs"]["host"] or env_url
+    api_token = token or config["wikly"]["api_key"] or env_token
+    base_url = url or config["wikly"]["host"] or env_url
     
     # Load sitemap settings from config
     config_sitemap = config.get("sitemap", {})
@@ -70,11 +70,11 @@ def export_pages(url: Optional[str], token: Optional[str], output: Optional[str]
     
     # Check if required parameters are available
     if not base_url:
-        click.echo("Error: Wiki.js URL is required. Provide it using --url, config file, or set WIKIJS_HOST in .env file.")
+        click.echo("Error: Wiki.js URL is required. Provide it using --url, config file, or set WIKLY_HOST in .env file.")
         return
     
     if not api_token:
-        click.echo("Error: API token is required. Provide it using --token, config file, or set WIKIJS_API_KEY in .env file.")
+        click.echo("Error: API token is required. Provide it using --token, config file, or set WIKLY_API_KEY in .env file.")
         return
     
     # Force full export overrides incremental flag
@@ -94,7 +94,7 @@ def export_pages(url: Optional[str], token: Optional[str], output: Optional[str]
         click.echo(f"API delay: {export_delay}s")
     
     # Create API client
-    api = WikiJSAPI(base_url, api_token, debug)
+    api = WikilyAPI(base_url, api_token, debug)
     
     # Initialize export metadata manager
     metadata = ExportMetadata(export_metadata, debug=debug)

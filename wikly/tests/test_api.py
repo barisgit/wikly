@@ -1,20 +1,19 @@
 """
-Tests for the API module.
+Tests for API functionality.
 """
 
 import unittest
 from unittest.mock import patch, MagicMock
+from wikly.api import WikilyAPI
 
-from wikijs_exporter.api import WikiJSAPI
-
-class TestWikiJSAPI(unittest.TestCase):
-    """Test cases for the WikiJSAPI class."""
+class TestWikilyAPI(unittest.TestCase):
+    """Test cases for the WikilyAPI class."""
 
     def setUp(self):
         """Set up test fixtures."""
-        self.api = WikiJSAPI('https://example.com', 'fake_token')
+        self.api = WikilyAPI('https://example.com', 'fake_token')
 
-    @patch('wikijs_exporter.api.requests.post')
+    @patch('wikly.api.requests.post')
     def test_test_connection(self, mock_post):
         """Test the test_connection method."""
         # Mock the response
@@ -38,7 +37,7 @@ class TestWikiJSAPI(unittest.TestCase):
         self.assertTrue(result)
         mock_post.assert_called_once()
 
-    @patch('wikijs_exporter.api.requests.post')
+    @patch('wikly.api.requests.post')
     def test_test_connection_failure(self, mock_post):
         """Test the test_connection method when it fails."""
         # Mock the response to return an error

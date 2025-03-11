@@ -7,7 +7,7 @@ import yaml
 from typing import Dict, Any, Optional, Tuple
 
 # Default config file path
-DEFAULT_CONFIG_PATH = "wikijs_config.yaml"
+DEFAULT_CONFIG_PATH = "wikly_config.yaml"
 
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -22,7 +22,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     import click
     
     default_config = {
-        "wikijs": {
+        "wikly": {
             "host": None,
             "api_key": None,
             "use_env_vars": True,
@@ -31,14 +31,15 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
             "default_format": "markdown",
             "default_output": "wiki_export",
             "delay": 0.1,
-            "metadata_file": ".wikijs_export_metadata.json"
+            "metadata_file": ".wikly_export_metadata.json"
         },
         "gemini": {
             "api_key": None,
             "delay": 1.0,
+            "default_model": "gemini-2.0-flash",
             "style_guide_file": "wiki_style_guide.md",
             "ai_guide_file": "ai_instructions.md",
-            "metadata_file": ".wikijs_analysis_metadata.json"
+            "metadata_file": ".wikly_analysis_metadata.json"
         },
         "sitemap": {
             "max_chars": 10000,
@@ -79,7 +80,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
                                 config[section][key] = default_config[section][key]
                 
                 # Print debug info about API keys
-                if config.get("wikijs", {}).get("api_key") is None:
+                if config.get("wikly", {}).get("api_key") is None:
                     click.echo("Note: Wiki.js API key not found in config, will try environment variables")
                 if config.get("gemini", {}).get("api_key") is None:
                     click.echo("Note: Gemini API key not found in config, will try environment variables")

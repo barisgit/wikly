@@ -59,7 +59,7 @@ def merge_config_with_defaults(existing_config: Dict[str, Any]) -> Dict[str, Any
     """
     # Define default configuration structure
     default_config = {
-        "wikijs": {
+        "wikly": {
             "host": "https://your-wiki.example.com",
             "api_key": "your_api_token_here",
             "use_env_vars": True
@@ -68,7 +68,7 @@ def merge_config_with_defaults(existing_config: Dict[str, Any]) -> Dict[str, Any
             "default_format": "markdown",
             "default_output": "wiki_export",
             "delay": 0.1,
-            "metadata_file": ".wikijs_export_metadata.json"
+            "metadata_file": ".wikly_export_metadata.json"
         },
         "gemini": {
             "api_key": "your_gemini_api_key_here",
@@ -123,7 +123,7 @@ def generate_config_content(config: Dict[str, Any]) -> str:
     
     # Section comments
     section_comments = {
-        "wikijs": """# Wiki.js instance settings
+        "wikly": """# Wiki.js instance settings
 """,
         "export": """
 # Export settings
@@ -138,7 +138,7 @@ def generate_config_content(config: Dict[str, Any]) -> str:
     
     # Field-specific comments
     field_comments = {
-        "wikijs": {
+        "wikly": {
             "host": "  # Wiki.js host URL (e.g., https://wiki.example.com)",
             "api_key": "  # API token with read permissions (from Wiki.js Admin > API Access)",
             "use_env_vars": "  # Whether to fall back to environment variables if values aren't specified"

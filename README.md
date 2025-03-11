@@ -1,6 +1,6 @@
-# Wiki.js Exporter
+# Wikly
 
-A command-line tool to export content from a Wiki.js instance using the GraphQL API. This is a **read-only** tool that will not make any changes to your Wiki.js content.
+A command-line tool to export and analyze content from a Wiki.js instance using the GraphQL API. This is a **read-only** tool that will not make any changes to your Wiki.js content.
 
 ## Features
 
@@ -17,22 +17,22 @@ A command-line tool to export content from a Wiki.js instance using the GraphQL 
 ### Using pip
 
 ```bash
-pip install wikijs-exporter
+pip install wikly
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/yourusername/wikijs-exporter.git
-cd wikijs-exporter
+git clone https://github.com/yourusername/wikly.git
+cd wikly
 pip install -e .
 ```
 
 ## Configuration
 
-There are three ways to configure the Wiki.js Exporter:
+There are three ways to configure Wikly:
 
-1. **Configuration File**: Use the `wikijs init` command to generate a template configuration file.
+1. **Configuration File**: Use the `wikly init` command to generate a template configuration file.
 2. **Command Line Options**: Pass options directly when running commands.
 3. **Environment Variables**: Configure through environment variables.
 
@@ -43,13 +43,13 @@ The tool follows this precedence: Command Line > Config File > Environment Varia
 Run the following command to create a template configuration file:
 
 ```bash
-wikijs init
+wikly init
 ```
 
-This creates a `wikijs_config.yaml` file with the following structure:
+This creates a `wikly_config.yaml` file with the following structure:
 
 ```yaml
-wikijs:
+wikly:
   host: https://your-wiki-instance.com
   api_key: YOUR_API_KEY_HERE
 
@@ -57,7 +57,7 @@ export:
   default_format: markdown
   default_output: wiki_pages
   delay: 0.1
-  metadata_file: .wikijs_export_metadata.json
+  metadata_file: .wikly_export_metadata.json
 
 gemini:
   api_key: YOUR_GEMINI_API_KEY_HERE
@@ -66,22 +66,22 @@ gemini:
 You can specify a different path for the configuration file:
 
 ```bash
-wikijs init --path custom_config.yaml
+wikly init --path custom_config.yaml
 ```
 
 ### Environment Variables
 
 Set the following environment variables:
 
-* `WIKIJS_HOST`: Base URL of your Wiki.js instance
-* `WIKIJS_API_KEY`: API token with appropriate permissions
+* `WIKLY_HOST`: Base URL of your Wiki.js instance
+* `WIKLY_API_KEY`: API token with appropriate permissions
 * `GEMINI_API_KEY`: Google Gemini API key (optional, for analysis features)
 
 A convenient way to manage these variables is to create a `.env` file in your working directory:
 
 ```
-WIKIJS_HOST=https://your-wiki-instance.com
-WIKIJS_API_KEY=your-api-token
+WIKLY_HOST=https://your-wiki-instance.com
+WIKLY_API_KEY=your-api-token
 GEMINI_API_KEY=your-gemini-api-key
 ```
 
@@ -92,7 +92,7 @@ The tool will automatically load these variables when run.
 All commands accept a `--config-file` option to specify a custom configuration file:
 
 ```bash
-wikijs <command> --config-file my_config.yaml
+wikly <command> --config-file my_config.yaml
 ```
 
 ### Initialization
@@ -100,16 +100,16 @@ wikijs <command> --config-file my_config.yaml
 Generate a template configuration file:
 
 ```bash
-wikijs init
+wikly init
 ```
 
 This command creates three files:
-1. `wikijs_config.yaml` - Main configuration file
+1. `wikly_config.yaml` - Main configuration file
 2. `wiki_style_guide.md` - Sample style guide for content analysis
 3. `ai_instructions.md` - AI-specific instructions for content analysis
 
 Options:
-* `--path`: Specify a custom location for the configuration file (default: wikijs_config.yaml)
+* `--path`: Specify a custom location for the configuration file (default: wikly_config.yaml)
 * `--force`: Force overwrite if the files already exist
 
 The configuration file includes settings for Wiki.js connection, export options, and AI analysis parameters.
@@ -119,7 +119,7 @@ The configuration file includes settings for Wiki.js connection, export options,
 Verify your Wiki.js connection:
 
 ```bash
-wikijs test
+wikly test
 ```
 
 Options:
@@ -132,7 +132,7 @@ Options:
 List all pages in your Wiki.js instance:
 
 ```bash
-wikijs list
+wikly list
 ```
 
 Options:
@@ -145,7 +145,7 @@ Options:
 Export all pages from Wiki.js:
 
 ```bash
-wikijs export
+wikly export
 ```
 
 Options:
@@ -166,7 +166,7 @@ Options:
 Run semantic analysis on exported content:
 
 ```bash
-wikijs analyze
+wikly analyze
 ```
 
 This command uses the Gemini AI to analyze Wiki.js content against a style guide, identifying issues and suggesting improvements.
@@ -182,7 +182,7 @@ Options:
 
 The analysis process:
 1. Loads content from the specified source (JSON or Markdown files)
-2. Reads the style guide and AI instructions (created by `wikijs init`)
+2. Reads the style guide and AI instructions (created by `wikly init`)
 3. Analyzes each page for style compliance
 4. Generates a report with issues and suggestions
 
@@ -198,10 +198,10 @@ Generate an HTML report from existing analysis results:
 
 ```bash
 # Using an explicit input file
-wikijs report analysis_results.json
+wikly report analysis_results.json
 
 # Using configuration defaults
-wikijs report
+wikly report
 ```
 
 This command takes previously generated analysis results (JSON) and creates a visual HTML report without needing to re-run the analysis.
@@ -211,7 +211,7 @@ Options:
 * `--style-guide`: Path to style guide file to include in the report
 * `--config-file`: Path to custom configuration file
 
-If you don't specify an input file, the command will use the default paths from your configuration. This means you can simply run `wikijs report` after running `wikijs analyze` to generate an HTML report from the latest analysis results.
+If you don't specify an input file, the command will use the default paths from your configuration. This means you can simply run `wikly report` after running `wikly analyze` to generate an HTML report from the latest analysis results.
 
 This is useful when:
 - You want to generate a report with different formatting
@@ -221,7 +221,7 @@ This is useful when:
 
 #### Style Guide and AI Instructions
 
-The `wikijs init` command creates two files for content analysis:
+The `wikly init` command creates two files for content analysis:
 
 1. **Style Guide** (`wiki_style_guide.md`): Contains human-readable guidelines for writing wiki content. This is the primary reference for what "good" content looks like.
 
@@ -234,7 +234,7 @@ You can customize both files to match your organization's style requirements and
 To fetch and save a list of all pages (without content):
 
 ```bash
-wikijs list --output wiki_pages.json
+wikly list --output wiki_pages.json
 ```
 
 ### Exporting Pages with Content
@@ -242,7 +242,7 @@ wikijs list --output wiki_pages.json
 To export all pages with their full content:
 
 ```bash
-wikijs export --output wiki_export.json
+wikly export --output wiki_export.json
 ```
 
 By default, the exporter uses incremental mode, which only fetches content for pages that have been updated since the last export. This significantly speeds up subsequent exports.
@@ -252,7 +252,7 @@ The incremental export also detects local changes to exported files. If you modi
 To force a full export of all pages:
 
 ```bash
-wikijs export --force-full
+wikly export --force-full
 ```
 
 #### Export Formats
@@ -261,39 +261,39 @@ You can export in different formats using the `--format` option:
 
 ```bash
 # Export as JSON (default)
-wikijs export --format json
+wikly export --format json
 
 # Export as Markdown files
-wikijs export --format markdown --output wiki_markdown
+wikly export --format markdown --output wiki_markdown
 
 # Export as HTML files
-wikijs export --format html --output wiki_html
+wikly export --format html --output wiki_html
 ```
 
 #### Additional Export Options
 
 ```bash
 # Set delay between API requests
-wikijs export --delay 0.5
+wikly export --delay 0.5
 
 # Toggle between incremental and full exports
-wikijs export --incremental  # Default, only fetches updated content
-wikijs export --full         # Fetches all content
+wikly export --incremental  # Default, only fetches updated content
+wikly export --full         # Fetches all content
 
 # Force a full export regardless of other settings
-wikijs export --force-full
+wikly export --force-full
 
 # Reset all content hashes (useful if having issues with local change detection)
-wikijs export --reset-hashes
+wikly export --reset-hashes
 
 # Specify a custom metadata file location
-wikijs export --metadata-file /path/to/metadata.json
+wikly export --metadata-file /path/to/metadata.json
 
 # Enable verbose debugging output
-wikijs export --debug
+wikly export --debug
 ```
 
-The exporter tracks metadata about previous exports in a `.wikijs_export_metadata.json` file, including:
+The exporter tracks metadata about previous exports in a `.wikly_export_metadata.json` file, including:
 - The last update time for each page
 - Content hashes to detect local modifications
 - Original paths and titles from Wiki.js
@@ -315,7 +315,7 @@ For complex workflows with many local edits, you may want to set up version cont
 The `analyze` command lets you check your wiki content against a style guide using Google's Gemini AI:
 
 ```bash
-wikijs analyze path/to/exported/content style_guide.md
+wikly analyze path/to/exported/content style_guide.md
 ```
 
 This will:
@@ -330,22 +330,22 @@ By default, the analyze command uses incremental mode, which only analyzes pages
 
 ```bash
 # Incremental analysis (default)
-wikijs analyze --incremental
+wikly analyze --incremental
 
 # Force full analysis of all pages
-wikijs analyze --full
+wikly analyze --full
 
 # Force a full analysis regardless of other settings
-wikijs analyze --force-full
+wikly analyze --force-full
 
 # Reset all content hashes (useful if having issues with local change detection)
-wikijs analyze --reset-hashes
+wikly analyze --reset-hashes
 
 # Specify a custom metadata file location
-wikijs analyze --metadata-file /path/to/metadata.json
+wikly analyze --metadata-file /path/to/metadata.json
 ```
 
-The analyzer tracks metadata about previous analyses in a `.wikijs_analysis_metadata.json` file, including:
+The analyzer tracks metadata about previous analyses in a `.wikly_analysis_metadata.json` file, including:
 - Content hashes to detect file changes
 - Analysis timestamps for each page
 - Issue counts and compliance scores
@@ -356,19 +356,19 @@ This allows the analyzer to intelligently decide which pages need to be re-analy
 
 ```bash
 # Set a custom output location for results
-wikijs analyze content_dir style_guide.md --output analysis.json --report report.html
+wikly analyze content_dir style_guide.md --output analysis.json --report report.html
 
 # Use a specific Gemini model
-wikijs analyze content_dir style_guide.md --model gemini-1.5-pro
+wikly analyze content_dir style_guide.md --model gemini-1.5-pro
 
 # Add delay between API calls to avoid rate limits
-wikijs analyze content_dir style_guide.md --delay 2.0
+wikly analyze content_dir style_guide.md --delay 2.0
 
 # Provide a separate AI-specific guidance file
-wikijs analyze content_dir style_guide.md --ai-guide ai_specific_guide.md
+wikly analyze content_dir style_guide.md --ai-guide ai_specific_guide.md
 
 # Enable debug output
-wikijs analyze content_dir style_guide.md --debug
+wikly analyze content_dir style_guide.md --debug
 ```
 
 #### AI Guide
@@ -381,7 +381,7 @@ You can optionally provide an AI-specific guidance file that contains instructio
 
 Example usage:
 ```bash
-wikijs analyze content_dir human_style_guide.md --ai-guide ai_specific_instructions.md
+wikly analyze content_dir human_style_guide.md --ai-guide ai_specific_instructions.md
 ```
 
 #### Rate Limiting Protection

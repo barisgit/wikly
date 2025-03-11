@@ -8,70 +8,64 @@ import yaml
 import pytest
 from pathlib import Path
 
-from wikijs_exporter.config import load_config, DEFAULT_CONFIG_PATH
+from wikly.config import load_config, DEFAULT_CONFIG_PATH
 
 
 def test_load_config_default_values():
     """Test that load_config returns default values when no file is present."""
-    # Test with a non-existent file
-    with tempfile.TemporaryDirectory() as tmpdir:
-        non_existent_path = os.path.join(tmpdir, "does_not_exist.yaml")
-        config = load_config(non_existent_path)
-        
-        # Verify default values are returned
-        assert "wikijs" in config
-        assert "export" in config
-        assert "gemini" in config
-        assert config["wikijs"]["host"] is None
-        assert config["wikijs"]["api_key"] is None
-        assert config["wikijs"]["use_env_vars"] is True
-        assert config["export"]["default_format"] == "markdown"
-        assert config["export"]["default_output"] == "wiki_export"
-        assert config["export"]["delay"] == 0.1
-        assert config["export"]["metadata_file"] == ".wikijs_export_metadata.json"
-        assert config["gemini"]["api_key"] is None
-        assert config["gemini"]["default_model"] == "gemini-2.0-flash"
-        assert config["gemini"]["delay"] == 1.0
+    config = load_config("nonexistent_file.yaml")
+    
+    # Verify default config values
+    assert "wikly" in config
+    assert "export" in config
+    assert "gemini" in config
+    assert config["wikly"]["host"] is None
+    assert config["wikly"]["api_key"] is None
+    assert config["wikly"]["use_env_vars"] is True
+    
+    assert config["export"]["default_format"] == "markdown"
+    assert config["export"]["default_output"] == "wiki_export"
+    assert config["export"]["delay"] == 0.1
+    assert config["export"]["metadata_file"] == ".wikly_export_metadata.json"
+    assert config["gemini"]["api_key"] is None
+    assert config["gemini"]["default_model"] == "gemini-2.0-flash"
+    assert config["gemini"]["delay"] == 1.0
 
 
 def test_load_config_with_file():
-    """Test that load_config correctly loads values from a file."""
-    # Create a test config file
-    with tempfile.TemporaryDirectory() as tmpdir:
-        config_path = os.path.join(tmpdir, "test_config.yaml")
-        
-        # Create a sample config
-        test_config = {
-            "wikijs": {
+    """Test that load_config loads values from a file."""
+    # Create temporary config file
+    with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp:
+        config_content = {
+            "wikly": {
                 "host": "https://test-wiki.example.com",
-                "api_key": "test-api-key"
+                "api_key": "test-api-key",
+                "use_env_vars": False
             },
             "export": {
-                "default_format": "markdown",
+                "default_format": "json",
                 "default_output": "test_output",
-                "delay": 0.5,
-                "metadata_file": "test_metadata.json"
-            },
-            "gemini": {
-                "api_key": "test-gemini-key"
+                "delay": 0.5
             }
         }
+        yaml.dump(config_content, temp)
+        temp_path = temp.name
+    
+    try:
+        # Load config from temporary file
+        config = load_config(temp_path)
         
-        # Write config to file
-        with open(config_path, 'w') as f:
-            yaml.dump(test_config, f)
-        
-        # Load the config
-        config = load_config(config_path)
-        
-        # Verify values match
-        assert config["wikijs"]["host"] == "https://test-wiki.example.com"
-        assert config["wikijs"]["api_key"] == "test-api-key"
-        assert config["export"]["default_format"] == "markdown"
+        # Verify loaded values
+        assert config["wikly"]["host"] == "https://test-wiki.example.com"
+        assert config["wikly"]["api_key"] == "test-api-key"
+        assert config["export"]["default_format"] == "json"
         assert config["export"]["default_output"] == "test_output"
         assert config["export"]["delay"] == 0.5
-        assert config["export"]["metadata_file"] == "test_metadata.json"
-        assert config["gemini"]["api_key"] == "test-gemini-key"
+        assert config["gemini"]["api_key"] is None
+        assert config["gemini"]["default_model"] == "gemini-2.0-flash"
+        assert config["gemini"]["delay"] == 1.0
+    finally:
+        os.unlink(temp_path)
 
 
 def test_load_config_partial_values():
@@ -82,7 +76,7 @@ def test_load_config_partial_values():
         
         # Create a partial config
         partial_config = {
-            "wikijs": {
+            "wikly": {
                 "host": "https://partial-wiki.example.com"
                 # Missing api_key
             },
@@ -101,12 +95,12 @@ def test_load_config_partial_values():
         config = load_config(config_path)
         
         # Verify specified values are loaded
-        assert config["wikijs"]["host"] == "https://partial-wiki.example.com"
+        assert config["wikly"]["host"] == "https://partial-wiki.example.com"
         assert config["export"]["default_format"] == "html"
         
         # Verify default values are used for missing fields
-        assert config["wikijs"]["api_key"] is None  # Default
-        assert config["wikijs"]["use_env_vars"] is True  # Default
+        assert config["wikly"]["api_key"] is None  # Default
+        assert config["wikly"]["use_env_vars"] is True  # Default
         assert "default_output" in config["export"]
         assert "delay" in config["export"]
         assert "metadata_file" in config["export"]

@@ -7,7 +7,7 @@ from typing import Optional
 
 from ..config import DEFAULT_CONFIG_PATH, load_config
 from ..utils import load_env_variables, save_pages_to_file
-from ..api import WikiJSAPI
+from ..api import WikilyAPI
 
 @click.command('list')
 @click.option('--url', help='Base URL of your Wiki.js instance')
@@ -24,23 +24,23 @@ def list_pages(url: Optional[str], token: Optional[str], output: str, debug: boo
     config = load_config(config_file)
     
     # Precedence: 1) Command-line args, 2) Config file, 3) Environment variables
-    api_token = token or config["wikijs"]["api_key"] or env_token
-    base_url = url or config["wikijs"]["host"] or env_url
+    api_token = token or config["wikly"]["api_key"] or env_token
+    base_url = url or config["wikly"]["host"] or env_url
     
     # Check if required parameters are available
     if not base_url:
-        click.echo("Error: Wiki.js URL is required. Provide it using --url, config file, or set WIKIJS_HOST in .env file.")
+        click.echo("Error: Wiki.js URL is required. Provide it using --url, config file, or set WIKLY_HOST in .env file.")
         return
     
     if not api_token:
-        click.echo("Error: API token is required. Provide it using --token, config file, or set WIKIJS_API_KEY in .env file.")
+        click.echo("Error: API token is required. Provide it using --token, config file, or set WIKLY_API_KEY in .env file.")
         return
     
     if debug:
         click.echo("Debug mode enabled")
     
     # Create API client
-    api = WikiJSAPI(base_url, api_token, debug)
+    api = WikilyAPI(base_url, api_token, debug)
     
     # Fetch pages
     pages = api.fetch_pages()

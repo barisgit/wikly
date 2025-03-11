@@ -1,5 +1,5 @@
 """
-Command-line interface for Wiki.js Exporter.
+Command-line interface for Wikly.
 """
 
 import click
@@ -15,7 +15,7 @@ from .commands.models import list_gemini_models
 @click.group()
 @click.version_option()
 def cli():
-    """Wiki.js Exporter - Export content from a Wiki.js instance."""
+    """Wikly - Export and analyze content from a Wiki.js instance."""
     pass
 
 # Register all commands

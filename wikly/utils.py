@@ -1,5 +1,5 @@
 """
-Utility functions for Wiki.js exporter.
+Utility functions for Wikly.
 """
 
 import os
@@ -47,7 +47,7 @@ def load_env_variables():
     load_dotenv(dotenv_path=env_file, override=True)
     
     # Check if keys were loaded
-    if any([os.getenv("WIKIJS_HOST"), os.getenv("WIKIJS_API_KEY"), os.getenv("GEMINI_API_KEY")]):
+    if any([os.getenv("WIKLY_HOST"), os.getenv("WIKLY_API_KEY"), os.getenv("GEMINI_API_KEY")]):
         click.echo("✓ Successfully loaded some environment variables from .env file")
     else:
         click.echo("No environment variables were loaded from .env file")
@@ -68,16 +68,16 @@ def load_env_variables():
             click.echo(f"✓ Loaded environment variables from {script_env}")
     
     # Get variables
-    base_url = os.getenv("WIKIJS_HOST")
-    api_token = os.getenv("WIKIJS_API_KEY")
+    base_url = os.getenv("WIKLY_HOST")
+    api_token = os.getenv("WIKLY_API_KEY")
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     
     # Debug info
     found_vars = []
     if base_url:
-        found_vars.append("WIKIJS_HOST")
+        found_vars.append("WIKLY_HOST")
     if api_token:
-        found_vars.append("WIKIJS_API_KEY")
+        found_vars.append("WIKLY_API_KEY")
     if gemini_api_key:
         found_vars.append("GEMINI_API_KEY")
     
@@ -187,10 +187,10 @@ class ExportMetadata:
         Initialize the ExportMetadata manager.
         
         Args:
-            metadata_file: File path to store metadata (default: .wikijs_export_metadata.json)
+            metadata_file: File path to store metadata (default: .wikly_export_metadata.json)
             debug: Whether to print debug information
         """
-        self.metadata_file = metadata_file or os.path.join(os.getcwd(), '.wikijs_export_metadata.json')
+        self.metadata_file = metadata_file or os.path.join(os.getcwd(), '.wikly_export_metadata.json')
         self.debug = debug
         self.metadata = self._load_metadata()
     
@@ -447,10 +447,10 @@ class AnalysisMetadata:
         Initialize the AnalysisMetadata manager.
         
         Args:
-            metadata_file: File path to store metadata (default: .wikijs_analysis_metadata.json)
+            metadata_file: File path to store metadata (default: .wikly_analysis_metadata.json)
             debug: Whether to print debug information
         """
-        self.metadata_file = metadata_file or os.path.join(os.getcwd(), '.wikijs_analysis_metadata.json')
+        self.metadata_file = metadata_file or os.path.join(os.getcwd(), '.wikly_analysis_metadata.json')
         self.debug = debug
         self.metadata = self._load_metadata()
     

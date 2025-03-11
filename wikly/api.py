@@ -6,17 +6,17 @@ import time
 import requests
 from typing import List, Dict, Any, Optional
 
-class WikiJSAPI:
+class WikilyAPI:
     """Client for interacting with the Wiki.js GraphQL API."""
     
     def __init__(self, base_url: str, api_token: str, debug: bool = False):
         """
-        Initialize the WikiJSAPI client.
+        Initialize the WikilyAPI client.
         
         Args:
             base_url: Base URL of the Wiki.js instance
-            api_token: API token for authentication
-            debug: Whether to print debug information
+            api_token: API token with read permissions
+            debug: Enable debug output
         """
         # Ensure the base URL doesn't end with a slash
         self.base_url = base_url

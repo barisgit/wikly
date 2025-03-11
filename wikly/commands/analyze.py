@@ -27,7 +27,7 @@ from .report import create_html_report
 @click.option('--incremental/--full', default=True, help='Only analyze pages that have changed since last analysis (default: incremental)')
 @click.option('--force-full', is_flag=True, help='Force full analysis instead of incremental')
 @click.option('--reset-hashes', is_flag=True, help='Reset all content hashes in metadata (forces reanalyzing all pages)')
-@click.option('--metadata-file', help='File to store analysis metadata (default: .wikijs_analysis_metadata.json)')
+@click.option('--metadata-file', help='File to store analysis metadata (default: .wikly_analysis_metadata.json)')
 @click.option('--show-sitemap/--no-sitemap', default=None, help='Show generated sitemap before analysis')
 @click.option('--sitemap-chars', type=int, help='Max characters for sitemap')
 @click.option('--sitemap-detail', type=int, help='Detail level for sitemap (0-3)')
@@ -63,7 +63,7 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
         show_sitemap = config_sitemap.get("show_by_default", False)
     
     # Get analysis metadata configuration
-    analysis_metadata_file = metadata_file or config["gemini"].get("metadata_file", ".wikijs_analysis_metadata.json")
+    analysis_metadata_file = metadata_file or config["gemini"].get("metadata_file", ".wikly_analysis_metadata.json")
     
     # Force full analysis overrides incremental flag
     if force_full:
@@ -320,7 +320,8 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
                         click.echo(f"Warning: Could not save intermediate results after error: {str(save_err)}")
     
     # Save analysis metadata for the pages we processed
-    metadata.save_metadata(pages_to_analyze)
+    # CHANGE: Pass results rather than pages_to_analyze to include the analysis results
+    metadata.save_metadata(results)
     
     # If we only analyzed some pages but need the complete results set
     if incremental and len(pages_to_analyze) < len(data):

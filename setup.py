@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """
-Setup script for Wiki.js Exporter.
+Setup script for Wikly.
 """
 
 from setuptools import setup, find_packages
 import os
 
 # Read the version from __init__.py
-with open(os.path.join('wikijs_exporter', '__init__.py'), 'r') as f:
+with open(os.path.join('wikly', '__init__.py'), 'r') as f:
     for line in f:
         if line.startswith('__version__'):
             version = line.split('=')[1].strip().strip("'\"")
@@ -20,14 +20,14 @@ with open('README.md', 'r', encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
-    name='wikijs-exporter',
+    name='wikly',
     version=version,
-    description='A tool to export content from Wiki.js via GraphQL API',
+    description='A tool to export and analyze Wiki.js content with AI capabilities',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    author='Wiki.js Exporter Contributors',
-    author_email='your.email@example.com',
-    url='https://github.com/barisgit/wikijs-exporter',
+    author='Wikly Contributors',
+    author_email='baristovnik@gmail.com',
+    url='https://github.com/barisgit/wikly',
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
@@ -48,7 +48,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'wikijs=wikijs_exporter.cli:cli',
+            'wikly=wikly.cli:cli',
         ],
     },
     classifiers=[
@@ -67,5 +67,5 @@ setup(
         'Topic :: Utilities',
     ],
     python_requires='>=3.8',
-    keywords='wiki, wiki.js, export, content-management',
+    keywords='wiki, wiki.js, export, analyze, ai, style-guide, content-management',
 ) 
