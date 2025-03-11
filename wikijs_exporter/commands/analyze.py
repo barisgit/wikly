@@ -21,16 +21,17 @@ from .report import create_html_report
 @click.option('--api-key', help='Google Gemini API key')
 @click.option('--style-guide', help='Path to style guide file')
 @click.option('--ai-guide', help='Path to AI-specific instructions file')
-@click.option('--model', help='Gemini model to use (default: gemini-2.0-flash)')
-@click.option('--delay', type=float, default=1.0, help='Delay between API calls in seconds (default: 1.0)')
+@click.option('--model', help='Gemini model to use')
+@click.option('--delay', type=float, help='Delay between API calls in seconds')
 @click.option('--debug/--no-debug', default=False, help='Enable debug output')
-@click.option('--show-sitemap/--no-sitemap', default=False, help='Show generated sitemap before analysis')
-@click.option('--enhanced-sitemap/--basic-sitemap', default=True, help='Use enhanced sitemap with additional metadata')
+@click.option('--show-sitemap/--no-sitemap', default=None, help='Show generated sitemap before analysis')
+@click.option('--sitemap-chars', type=int, help='Max characters for sitemap')
+@click.option('--sitemap-detail', type=int, help='Detail level for sitemap (0-3)')
 @click.option('--config-file', help=f'Path to configuration file (default: {DEFAULT_CONFIG_PATH})')
 def analyze_content(format: str, output: Optional[str], report: Optional[str], input: Optional[str], 
                    api_key: Optional[str], style_guide: Optional[str], ai_guide: Optional[str], 
-                   model: Optional[str], delay: float, debug: bool, show_sitemap: bool,
-                   enhanced_sitemap: bool, config_file: Optional[str]):
+                   model: Optional[str], delay: Optional[float], debug: bool, show_sitemap: Optional[bool],
+                   sitemap_chars: Optional[int], sitemap_detail: Optional[int], config_file: Optional[str]):
     """Analyze exported wiki content for style guide compliance."""
     # Load environment variables
     env_url, env_token, env_gemini_key = load_env_variables()
@@ -44,7 +45,23 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
     gemini_api_key = api_key or config["gemini"].get("api_key") or env_gemini_key
     style_guide_file = style_guide or config["gemini"].get("style_guide_file", "wiki_style_guide.md")
     ai_guide_file = ai_guide or config["gemini"].get("ai_guide_file", "ai_instructions.md")
-    gemini_model = model or config["gemini"].get("model", "gemini-2.0-flash")
+    gemini_model = model or config["gemini"].get("model") or config["gemini"].get("default_model", "gemini-2.0-flash")
+    gemini_delay = delay if delay is not None else config["gemini"].get("delay", 1.0)
+    
+    # Load sitemap settings from config
+    config_sitemap = config.get("sitemap", {})
+    sitemap_max_chars = sitemap_chars or config_sitemap.get("max_chars", 10000)
+    sitemap_detail_level = sitemap_detail or config_sitemap.get("detail_level", 2)
+    
+    # For show_sitemap, None means use config default
+    if show_sitemap is None:
+        show_sitemap = config_sitemap.get("show_by_default", False)
+    
+    if debug:
+        click.echo(f"Sitemap settings - Show: {show_sitemap}, Max chars: {sitemap_max_chars}, Detail level: {sitemap_detail_level}")
+        click.echo(f"Gemini model: {gemini_model}")
+        click.echo(f"Gemini API key: {'Set' if gemini_api_key else 'Not set'}")
+        click.echo(f"Gemini delay: {gemini_delay}s")
     
     # Get export directory from config
     export_format = format or config["export"].get("default_format", "markdown")
@@ -127,7 +144,7 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
     
     # Generate and display sitemap if requested
     if show_sitemap:
-        sitemap = generate_sitemap(data, enhanced=enhanced_sitemap)
+        sitemap = generate_sitemap(data, max_chars=sitemap_max_chars, detail_level=sitemap_detail_level)
         click.echo("\nGenerated Wiki Sitemap:")
         click.echo("------------------------")
         click.echo(sitemap)
@@ -139,7 +156,13 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
     click.echo(f"Analyzing {total_pages} pages using model: {gemini_model}")
     
     # Create analyzer with specified model
-    analyzer = GeminiAnalyzer(api_key=gemini_api_key, model=gemini_model, debug=debug)
+    analyzer = GeminiAnalyzer(
+        api_key=gemini_api_key, 
+        model=gemini_model, 
+        debug=debug,
+        sitemap_chars=sitemap_max_chars,
+        sitemap_detail=sitemap_detail_level
+    )
     
     # Set all pages for sitemap generation
     analyzer.set_all_pages(data)

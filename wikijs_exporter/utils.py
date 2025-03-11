@@ -12,21 +12,79 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 from dataclasses import dataclass
+import click
 
 def load_env_variables():
     """
     Load environment variables from .env file.
     
     Returns:
-        Tuple of (base_url, api_token)
+        Tuple of (base_url, api_token, gemini_api_key)
     """
-    # Try to load from .env file
-    load_dotenv()
+    # First, check if the .env file exists in the current directory and print debug info
+    current_dir = os.getcwd()
+    env_file = os.path.join(current_dir, '.env')
+    
+    if os.path.exists(env_file):
+        click.echo(f"Found .env file at: {env_file}")
+        try:
+            with open(env_file, 'r') as f:
+                env_contents = f.read()
+                # Print first line of content (safely, without exposing full secrets)
+                lines = env_contents.strip().split('\n')
+                click.echo(f".env file contains {len(lines)} line(s)")
+                for i, line in enumerate(lines):
+                    if '=' in line and not line.startswith('#'):
+                        var_name = line.split('=')[0]
+                        click.echo(f"  Line {i+1}: {var_name}=***")
+        except Exception as e:
+            click.echo(f"Warning: Found .env file but couldn't read it: {e}")
+    else:
+        click.echo(f"No .env file found in current directory: {current_dir}")
+    
+    # Try to load from .env file in current directory
+    click.echo("Attempting to load environment variables from current directory")
+    load_dotenv(dotenv_path=env_file, override=True)
+    
+    # Check if keys were loaded
+    if any([os.getenv("WIKIJS_HOST"), os.getenv("WIKIJS_API_KEY"), os.getenv("GEMINI_API_KEY")]):
+        click.echo("✓ Successfully loaded some environment variables from .env file")
+    else:
+        click.echo("No environment variables were loaded from .env file")
+        
+        # Also try looking in the parent directory if env vars not found
+        parent_env = os.path.join(os.path.dirname(os.getcwd()), '.env')
+        if os.path.exists(parent_env):
+            click.echo(f"Trying parent directory .env file: {parent_env}")
+            load_dotenv(dotenv_path=parent_env, override=True)
+            click.echo(f"✓ Loaded environment variables from {parent_env}")
+        
+        # Also try looking for .env in the same directory as the script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_env = os.path.join(script_dir, '.env')
+        if os.path.exists(script_env):
+            click.echo(f"Trying script directory .env file: {script_env}")
+            load_dotenv(dotenv_path=script_env, override=True)
+            click.echo(f"✓ Loaded environment variables from {script_env}")
     
     # Get variables
     base_url = os.getenv("WIKIJS_HOST")
     api_token = os.getenv("WIKIJS_API_KEY")
     gemini_api_key = os.getenv("GEMINI_API_KEY")
+    
+    # Debug info
+    found_vars = []
+    if base_url:
+        found_vars.append("WIKIJS_HOST")
+    if api_token:
+        found_vars.append("WIKIJS_API_KEY")
+    if gemini_api_key:
+        found_vars.append("GEMINI_API_KEY")
+    
+    if found_vars:
+        click.echo(f"Found environment variables: {', '.join(found_vars)}")
+    else:
+        click.echo("WARNING: No environment variables were found")
     
     return base_url, api_token, gemini_api_key
 
@@ -625,16 +683,17 @@ def load_pages_from_markdown(directory_path: str) -> List[Dict[str, Any]]:
     
     return pages 
 
-def generate_sitemap(pages: List[Dict[str, Any]], enhanced: bool = False) -> str:
+def generate_sitemap(pages: List[Dict[str, Any]], max_chars: int = 10000, detail_level: int = 2) -> str:
     """
-    Generate a sitemap visualization from a list of wiki pages.
+    Generate a sitemap visualization from a list of wiki pages with adaptive detail based on size constraints.
     
     Args:
         pages: List of page objects with 'path' and 'title' keys
-        enhanced: Whether to include additional information like content size and update date
+        max_chars: Maximum number of characters to include in the sitemap (default: 10000)
+        detail_level: Level of detail to include (0=structure only, 1=basic info, 2=full details)
         
     Returns:
-        A string representation of the sitemap in tree format
+        A string representation of the sitemap in tree format, limited to max_chars
     """
     # Build a tree structure from the page paths
     tree = {}
@@ -642,26 +701,10 @@ def generate_sitemap(pages: List[Dict[str, Any]], enhanced: bool = False) -> str
     # Sort pages by path to ensure parent directories come before children
     sorted_pages = sorted(pages, key=lambda x: x.get('path', ''))
     
-    # Create a mapping of paths to page info
-    path_to_info = {}
-    for page in sorted_pages:
-        path = page.get('path', '')
-        path_to_info[path] = {
-            'title': page.get('title', 'Untitled'),
-            'updated': page.get('updatedAt', 'unknown date'),
-            'word_count': len(page.get('content', '').split()) if page.get('content') else 0,
-            'content_size': len(page.get('content', '')) if page.get('content') else 0,
-            'description': page.get('description', '')
-        }
-    
     # Build the tree
     for page in sorted_pages:
         path = page.get('path', '')
-        if not path:
-            continue
-            
-        # Skip paths that look like they might be URLs rather than wiki paths
-        if path.startswith('http'):
+        if not path or path.startswith('http'):  # Skip empty paths or URLs
             continue
             
         # Split the path into segments
@@ -673,105 +716,265 @@ def generate_sitemap(pages: List[Dict[str, Any]], enhanced: bool = False) -> str
         # Build the tree structure
         for i, segment in enumerate(segments):
             if segment not in current:
-                current[segment] = {'__children__': {}}
+                current[segment] = {
+                    'children': {},
+                    'segment': segment,
+                    'is_page': False,
+                    'is_folder': False,
+                    'depth': i + 1
+                }
             
             # If this is the last segment, mark it as a page and store metadata
             if i == len(segments) - 1:
-                current[segment]['__is_page__'] = True
-                current[segment]['__title__'] = page.get('title', 'Untitled')
-                current[segment]['__metadata__'] = {
-                    'updated': page.get('updatedAt', 'unknown date'),
-                    'word_count': len(page.get('content', '').split()) if page.get('content') else 0,
-                    'content_size': len(page.get('content', '')) if page.get('content') else 0,
-                    'description': page.get('description', '')
-                }
+                current[segment]['is_page'] = True
+                current[segment]['title'] = page.get('title', 'Untitled')
+                current[segment]['word_count'] = len(page.get('content', '').split()) if page.get('content') else 0
+                current[segment]['updated'] = page.get('updatedAt', 'unknown date')
+                current[segment]['description'] = page.get('description', '')
+                current[segment]['path'] = path
+                
+                # Store the actual content for potential outline extraction if needed
+                if page.get('content') and detail_level >= 3:
+                    current[segment]['content'] = page.get('content', '')
+            
+            # Check if this is a folder (has children)
+            for p in sorted_pages:
+                p_path = p.get('path', '')
+                if p_path and p_path != path and p_path.startswith(path + '/'):
+                    current[segment]['is_folder'] = True
+                    break
             
             # Move to the next level of the tree
-            current = current[segment]['__children__']
+            current = current[segment]['children']
     
-    # Generate the tree visualization
-    sitemap = []
+    # Helper functions
+    def format_date(date_str):
+        """Format date string nicely if possible"""
+        if date_str and date_str != 'unknown date':
+            try:
+                from datetime import datetime
+                date_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                return date_obj.strftime('%Y-%m-%d')
+            except Exception:
+                pass
+        return date_str
     
-    def _generate_tree(node, prefix='', is_last=True, path_segments=None):
+    def extract_outline(content, max_lines=5):
+        """Extract a simple outline from content (first few lines and headings)"""
+        if not content:
+            return []
+            
+        lines = content.split('\n')
+        outline = []
+        
+        # Extract first line (often a summary or intro)
+        if lines and not lines[0].startswith('#'):
+            first_line = lines[0].strip()
+            if first_line and len(first_line) > 5:
+                if len(first_line) > 80:
+                    first_line = first_line[:77] + "..."
+                outline.append(first_line)
+        
+        # Extract headings
+        headings = [line for line in lines if line.strip().startswith('#') and len(line.strip()) > 2]
+        for h in headings[:max_lines-1]:  # Limit headings
+            heading = h.strip()
+            if len(heading) > 80:
+                heading = heading[:77] + "..."
+            outline.append(heading)
+            
+        if len(headings) > max_lines-1:
+            outline.append("... and more headings")
+            
+        return outline
+    
+    # Build the complete sitemap structure (as a list of dicts for easy manipulation)
+    sitemap_structure = []
+    
+    def build_structure(node_dict, prefix='', path_segments=None, is_last=True):
+        """Recursively build structured sitemap from tree"""
         if path_segments is None:
             path_segments = []
+        
+        for i, (key, node) in enumerate(sorted(node_dict.items())):
+            current_is_last = (i == len(node_dict) - 1)
             
-        # Add the current node to the sitemap
-        if path_segments:  # Skip the root node
-            full_path = '/'.join(path_segments)
-            is_page = node.get('__is_page__', False)
-            title = node.get('__title__', path_segments[-1])
-            metadata = node.get('__metadata__', {})
+            # Create structure entry
+            entry = {
+                'segment': key,
+                'prefix': prefix,
+                'is_last': current_is_last,
+                'depth': node.get('depth', len(path_segments)),
+                'is_page': node.get('is_page', False),
+                'is_folder': node.get('is_folder', False),
+                'path': node.get('path', '/'.join(path_segments + [key])),
+                'metadata': {}
+            }
             
-            # Determine if this is a folder page (parent directory)
-            is_folder = bool(node.get('__children__', {}))
-            
-            # Basic line for normal mode
-            line = f"{prefix}{'└── ' if is_last else '├── '}{path_segments[-1]}"
-            
-            if is_page:
-                # Add basic type indicator
-                page_type = "folder page" if is_folder else "content page"
-                line += f" ({page_type}: {title})"
+            if node.get('is_page', False):
+                entry['title'] = node.get('title', key)
+                entry['metadata'] = {
+                    'word_count': node.get('word_count', 0),
+                    'updated': node.get('updated', 'unknown date'),
+                    'description': node.get('description', '')
+                }
                 
-                # Add enhanced information if requested
-                if enhanced and metadata:
-                    # Format the date nicely if possible
-                    update_date = metadata.get('updated', '')
-                    if update_date and update_date != 'unknown date':
-                        try:
-                            # Try to convert ISO format to more readable format
-                            from datetime import datetime
-                            date_obj = datetime.fromisoformat(update_date.replace('Z', '+00:00'))
-                            formatted_date = date_obj.strftime('%Y-%m-%d')
-                        except Exception:
-                            formatted_date = update_date
-                    else:
-                        formatted_date = update_date
-                    
-                    # Add word count and update date
-                    word_count = metadata.get('word_count', 0)
-                    size_indicator = f"{word_count} words"
-                    
-                    # Add enhanced information in a cleaner format
-                    line += f" [{size_indicator}, updated: {formatted_date}]"
-                    
-                    # Add description if available and not too long
-                    description = metadata.get('description', '')
-                    if description and len(description) > 5:
-                        # Truncate long descriptions
-                        if len(description) > 80:
-                            description = description[:77] + "..."
-                        line += f"\n{prefix}{'    ' if is_last else '│   '} → {description}"
+                # Add outline if content is available and detail level warrants it
+                if 'content' in node and detail_level >= 3:
+                    entry['outline'] = extract_outline(node.get('content', ''))
+                
+                # Determine page type
+                if node.get('is_folder', False):
+                    entry['page_type'] = 'folder page'
+                else:
+                    entry['page_type'] = 'content page'
             
-            sitemap.append(line)
+            # Add to structure
+            sitemap_structure.append(entry)
+            
+            # Process children
+            if 'children' in node and node['children']:
+                new_prefix = prefix + ('    ' if current_is_last else '│   ')
+                new_path_segments = path_segments + [key]
+                build_structure(node['children'], new_prefix, new_path_segments, current_is_last)
+    
+    # Build the complete structure
+    build_structure(tree)
+    
+    # Now render the sitemap with progressive detail levels, respecting the character limit
+    rendered_lines = []
+    used_chars = 0
+    
+    # First, calculate the max depth in the sitemap structure
+    max_depth_in_structure = max(entry['depth'] for entry in sitemap_structure) if sitemap_structure else 0
+    
+    # Tiers of importance for rendering:
+    # 1. Complete structure with minimum detail to show hierarchy
+    # 2. Add basic metadata (word count, dates)
+    # 3. Add descriptions
+    # 4. Add content outlines
+    
+    # Render line function (returns text and character count)
+    def render_entry(entry, tier):
+        """Render a single sitemap entry with detail based on tier level"""
+        line = ""
         
-        # Process children
-        children = sorted([(k, v) for k, v in node.get('__children__', {}).items()])
-        for i, (key, child) in enumerate(children):
-            new_prefix = prefix + ('    ' if is_last else '│   ')
-            new_path = path_segments + [key]
-            _generate_tree(child, new_prefix, i == len(children) - 1, new_path)
+        # Basic structure (always show)
+        line += f"{entry['prefix']}{'└── ' if entry['is_last'] else '├── '}{entry['segment']}"
+        
+        if entry['is_page']:
+            # Add page type indicator
+            line += f" ({entry['page_type']}: {entry['title']})"
+            
+            # Tier 1+: Add basic metadata
+            if tier >= 1 and 'metadata' in entry:
+                word_count = entry['metadata'].get('word_count', 0)
+                updated = format_date(entry['metadata'].get('updated', ''))
+                line += f" [{word_count} words, updated: {updated}]"
+            
+            # Tier 2+: Add description
+            if tier >= 2 and 'metadata' in entry and entry['metadata'].get('description'):
+                description = entry['metadata'].get('description', '')
+                if description and len(description) > 5:
+                    if len(description) > 80:
+                        description = description[:77] + "..."
+                    line += f"\n{entry['prefix']}{'    ' if entry['is_last'] else '│   '} → {description}"
+            
+            # Tier 3+: Add outline
+            if tier >= 3 and 'outline' in entry and entry['outline']:
+                indent = entry['prefix'] + ('    ' if entry['is_last'] else '│   ')
+                for outline_line in entry['outline']:
+                    line += f"\n{indent} | {outline_line}"
+        
+        return line
     
-    # Start the tree generation
-    _generate_tree({"__children__": tree})
+    # Strategy: Start with complete tree at minimum detail, then add detail progressively
+    for tier in range(4):  # 0-3 detail tiers
+        # Skip higher tiers if detail_level doesn't warrant them
+        if tier > detail_level:
+            continue
+            
+        # Calculate lines we can add at this tier
+        tier_lines = []
+        
+        # First tier (0) - render all entries with minimal detail
+        if tier == 0:
+            for entry in sitemap_structure:
+                line = render_entry(entry, tier)
+                tier_lines.append((line, len(line)))
+        else:
+            # Higher tiers - add more detail to entries we already have
+            for idx, entry in enumerate(sitemap_structure):
+                # Skip entries that have no page info (they won't get more detail)
+                if not entry['is_page']:
+                    continue
+                
+                line = render_entry(entry, tier)
+                # Check if we already have an older version of this line
+                if idx < len(rendered_lines):
+                    # Calculate what will be added to existing entry
+                    old_line_len = len(rendered_lines[idx])
+                    new_chars = len(line) - old_line_len
+                    tier_lines.append((line, new_chars))
+                else:
+                    tier_lines.append((line, len(line)))
+        
+        # Try to add lines from this tier, respecting character limit
+        # Sort by depth for breadth-first display within tier
+        sorted_tier_lines = sorted(enumerate(tier_lines), key=lambda x: sitemap_structure[x[0]]['depth'])
+        
+        for idx, (line, char_count) in sorted_tier_lines:
+            # Check if we can add this line
+            if used_chars + char_count <= max_chars:
+                if idx < len(rendered_lines):
+                    # Replace existing entry
+                    used_chars = used_chars - len(rendered_lines[idx]) + len(line)
+                    rendered_lines[idx] = line
+                else:
+                    # Add new entry
+                    rendered_lines.append(line)
+                    used_chars += char_count
+            else:
+                # We've reached the limit, stop here
+                break
+        
+        # If we can't fit everything in this tier, stop adding more
+        if used_chars >= max_chars * 0.95:
+            break
     
-    # Add summary information in enhanced mode
-    if enhanced:
+    # If we couldn't fit everything, add a truncation message
+    if used_chars >= max_chars * 0.95:
+        total_entries = len(sitemap_structure)
+        rendered_entries = len(rendered_lines)
+        remaining = total_entries - rendered_entries
+        
+        if remaining > 0:
+            truncation_msg = f"\n... {remaining} more entries not shown due to character limit ..."
+            if used_chars + len(truncation_msg) <= max_chars:
+                rendered_lines.append(truncation_msg)
+    
+    # Add summary information if we have space left
+    if used_chars < max_chars * 0.95:
         total_pages = len(sorted_pages)
-        folder_pages = sum(1 for p in sorted_pages if get_page_type(p.get('path', ''), sorted_pages) == 'folder_page')
-        content_pages = total_pages - folder_pages
-        total_words = sum(len(p.get('content', '').split()) for p in sorted_pages if p.get('content'))
+        folder_pages = sum(1 for entry in sitemap_structure if entry.get('is_page') and entry.get('is_folder'))
+        content_pages = sum(1 for entry in sitemap_structure if entry.get('is_page') and not entry.get('is_folder'))
+        total_words = sum(entry.get('metadata', {}).get('word_count', 0) for entry in sitemap_structure if entry.get('is_page'))
+        avg_length = total_words // max(1, content_pages) if content_pages > 0 else 0
         
-        summary = [
+        summary_lines = [
             "\nSITEMAP SUMMARY:",
             f"Total pages: {total_pages} ({folder_pages} folder pages, {content_pages} content pages)",
             f"Total word count: {total_words} words",
-            f"Average page length: {total_words // max(1, content_pages)} words per content page"
+            f"Average page length: {avg_length} words per content page",
+            f"Character count: {used_chars:,} of {max_chars:,} ({(used_chars/max_chars)*100:.1f}% of limit)"
         ]
-        sitemap.extend(summary)
+        
+        # Check if adding the summary would exceed the limit
+        summary_text = "\n".join(summary_lines)
+        if used_chars + len(summary_text) < max_chars:
+            rendered_lines.extend(summary_lines)
     
-    return "\n".join(sitemap)
+    return "\n".join(rendered_lines)
 
 def get_page_type(page_path: str, pages: List[Dict[str, Any]]) -> str:
     """

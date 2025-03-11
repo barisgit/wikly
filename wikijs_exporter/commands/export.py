@@ -8,6 +8,7 @@ from typing import Optional
 
 from ..config import DEFAULT_CONFIG_PATH, load_config
 from ..utils import (
+    generate_sitemap,
     load_env_variables, 
     save_pages_to_file, 
     save_pages_to_markdown, 
@@ -27,10 +28,14 @@ from ..api import WikiJSAPI
 @click.option('--force-full', is_flag=True, help='Force full export instead of incremental')
 @click.option('--reset-hashes', is_flag=True, help='Reset all content hashes in metadata (forces recomputing all hashes)')
 @click.option('--metadata-file', help='File to store export metadata (default: from config)')
+@click.option('--show-sitemap/--no-sitemap', default=None, help='Show generated sitemap after export')
+@click.option('--sitemap-chars', type=int, help='Max characters for sitemap')
+@click.option('--sitemap-detail', type=int, help='Detail level for sitemap (0-3)')
 @click.option('--config-file', help=f'Path to configuration file (default: {DEFAULT_CONFIG_PATH})')
 def export_pages(url: Optional[str], token: Optional[str], output: Optional[str], delay: Optional[float], debug: bool, 
                 format: Optional[str], incremental: bool, force_full: bool, reset_hashes: bool, 
-                metadata_file: Optional[str], config_file: Optional[str]):
+                metadata_file: Optional[str], show_sitemap: Optional[bool], sitemap_chars: Optional[int], sitemap_detail: Optional[int],
+                config_file: Optional[str]):
     """Fetch pages with their content from Wiki.js."""
     # Load environment variables
     env_url, env_token, env_gemini_key = load_env_variables()
@@ -41,6 +46,18 @@ def export_pages(url: Optional[str], token: Optional[str], output: Optional[str]
     # Precedence: 1) Command-line args, 2) Config file, 3) Environment variables
     api_token = token or config["wikijs"]["api_key"] or env_token
     base_url = url or config["wikijs"]["host"] or env_url
+    
+    # Load sitemap settings from config
+    config_sitemap = config.get("sitemap", {})
+    sitemap_max_chars = sitemap_chars or config_sitemap.get("max_chars", 10000)
+    sitemap_detail_level = sitemap_detail or config_sitemap.get("detail_level", 2)
+    
+    # For show_sitemap, None means use config default
+    if show_sitemap is None:
+        show_sitemap = config_sitemap.get("show_by_default", False)
+    
+    if debug:
+        click.echo(f"Sitemap settings - Show: {show_sitemap}, Max chars: {sitemap_max_chars}, Detail level: {sitemap_detail_level}")
     
     # Get export config values with precedence
     export_format = format or config["export"]["default_format"]
@@ -135,4 +152,11 @@ def export_pages(url: Optional[str], token: Optional[str], output: Optional[str]
         # If output is a file, use it as a directory name instead
         output_dir = export_output if os.path.isdir(export_output) else os.path.splitext(export_output)[0]
         save_pages_to_html(pages, output_dir)
-        click.echo(f"✓ Exported {len(pages)} pages to {output_dir} in HTML format") 
+        click.echo(f"✓ Exported {len(pages)} pages to {output_dir} in HTML format")
+
+    if show_sitemap and pages:
+        click.echo("\nGenerated Wiki Sitemap:")
+        click.echo("------------------------")
+        sitemap = generate_sitemap(pages, max_chars=sitemap_max_chars, detail_level=sitemap_detail_level)
+        click.echo(sitemap)
+        click.echo("------------------------\n") 

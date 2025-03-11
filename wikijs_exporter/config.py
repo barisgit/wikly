@@ -35,8 +35,12 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         },
         "gemini": {
             "api_key": None,
-            "default_model": "gemini-2.0-flash",
             "delay": 1.0
+        },
+        "sitemap": {
+            "max_chars": 10000,
+            "detail_level": 2,
+            "show_by_default": False
         }
     }
     
@@ -49,6 +53,19 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
             with open(config_path, 'r') as f:
                 config = yaml.safe_load(f)
                 click.echo(f"✓ Loaded configuration from {config_path}")
+                
+                # Convert string "None" values to Python None
+                def convert_none_strings(d):
+                    for k, v in d.items():
+                        if isinstance(v, dict):
+                            convert_none_strings(v)
+                        elif v == "None" or v == "null":
+                            d[k] = None
+                
+                # Process the loaded config
+                if config:
+                    convert_none_strings(config)
+                
                 # Merge with default config
                 for section in default_config:
                     if section not in config:
@@ -57,6 +74,13 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
                         for key in default_config[section]:
                             if key not in config[section]:
                                 config[section][key] = default_config[section][key]
+                
+                # Print debug info about API keys
+                if config.get("wikijs", {}).get("api_key") is None:
+                    click.echo("Note: Wiki.js API key not found in config, will try environment variables")
+                if config.get("gemini", {}).get("api_key") is None:
+                    click.echo("Note: Gemini API key not found in config, will try environment variables")
+                
                 return config
     except Exception as e:
         click.echo(f"Warning: Error loading configuration file: {str(e)}")

@@ -14,7 +14,8 @@ from .utils import generate_sitemap, get_page_type
 class GeminiAnalyzer:
     """Client for analyzing content using the Gemini API."""
     
-    def __init__(self, api_key: str, model: str = "gemini-2.0-flash", debug: bool = False, enhanced_sitemap: bool = True):
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash", debug: bool = False, 
+                 sitemap_chars: int = 10000, sitemap_detail: int = 2):
         """
         Initialize the GeminiAnalyzer.
         
@@ -22,12 +23,14 @@ class GeminiAnalyzer:
             api_key: Gemini API key
             model: Gemini model to use (default: gemini-2.0-flash)
             debug: Whether to print debug information
-            enhanced_sitemap: Whether to use enhanced sitemap with more details
+            sitemap_chars: Maximum characters to include in the sitemap
+            sitemap_detail: Detail level for sitemap (0-3)
         """
         self.api_key = api_key
         self.model = model
         self.debug = debug
-        self.enhanced_sitemap = enhanced_sitemap
+        self.sitemap_chars = sitemap_chars
+        self.sitemap_detail = sitemap_detail
         self.api_base_url = "https://generativelanguage.googleapis.com/v1beta/models"
         self.api_url = f"{self.api_base_url}/{self.model}:generateContent"
         
@@ -142,7 +145,7 @@ You are a content consistency analyzer for a technical wiki. Your task is to ana
         # Generate sitemap if we have all pages
         if self.all_pages:
             # Generate a sitemap
-            sitemap = generate_sitemap(self.all_pages, enhanced=self.enhanced_sitemap)
+            sitemap = generate_sitemap(self.all_pages, max_chars=self.sitemap_chars, detail_level=self.sitemap_detail)
             
             # Get the page type
             page_type = "unknown"
