@@ -1,0 +1,46 @@
+# Environment variables
+.env
+
+# Output files
+*.json
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo 
+
+# Wiki.js files
+wiki_pages.json
+wiki_pages_with_content.json
+wiki_pages_with_content.md
+wiki_pages_with_content.html
+wiki_pages_with_content.pdf
+wiki_pages_with_content/
