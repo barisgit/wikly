@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
+from dataclasses import dataclass
 
 def load_env_variables():
     """
@@ -539,4 +540,87 @@ def save_pages_to_html(pages: List[Dict[str, Any]], output_dir: str) -> None:
         except Exception as e:
             print(f"Error saving page {title} to {filename}: {str(e)}")
     
-    print(f"✓ Saved {saved_count} pages as HTML files in {output_dir}") 
+    print(f"✓ Saved {saved_count} pages as HTML files in {output_dir}")
+
+def load_pages_from_file(file_path: str) -> List[Dict[str, Any]]:
+    """
+    Load pages from a JSON file.
+    
+    Args:
+        file_path: Path to the JSON file
+        
+    Returns:
+        List of pages
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading pages from file: {str(e)}")
+        return []
+
+def load_pages_from_markdown(directory_path: str) -> List[Dict[str, Any]]:
+    """
+    Load pages from a directory of Markdown files.
+    
+    Args:
+        directory_path: Path to the directory containing Markdown files
+        
+    Returns:
+        List of pages with metadata and content
+    """
+    pages = []
+    path = Path(directory_path)
+    
+    if not path.exists() or not path.is_dir():
+        print(f"Error: {directory_path} is not a valid directory")
+        return []
+    
+    # Find all markdown files recursively
+    markdown_files = list(path.glob("**/*.md"))
+    
+    for file_path in markdown_files:
+        try:
+            # Read the markdown file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Extract metadata from frontmatter if present
+            title = file_path.stem  # Default to filename
+            page_path = str(file_path.relative_to(path))
+            updated_at = ""
+            
+            # Try to extract frontmatter
+            frontmatter_match = re.search(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
+            if frontmatter_match:
+                frontmatter = frontmatter_match.group(1)
+                # Extract title if present
+                title_match = re.search(r'title:\s*(.*)', frontmatter)
+                if title_match:
+                    title = title_match.group(1).strip()
+                
+                # Extract path if present
+                path_match = re.search(r'path:\s*(.*)', frontmatter)
+                if path_match:
+                    page_path = path_match.group(1).strip()
+                
+                # Extract updated_at if present
+                updated_match = re.search(r'updated(?:_at)?:\s*(.*)', frontmatter)
+                if updated_match:
+                    updated_at = updated_match.group(1).strip()
+            
+            # Create page object
+            page = {
+                "id": str(file_path),
+                "path": page_path,
+                "title": title,
+                "content": content,
+                "updatedAt": updated_at
+            }
+            
+            pages.append(page)
+            
+        except Exception as e:
+            print(f"Error loading page from {file_path}: {str(e)}")
+    
+    return pages 

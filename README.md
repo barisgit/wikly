@@ -30,29 +30,204 @@ pip install -e .
 
 ## Configuration
 
-You can configure the exporter using either:
+There are three ways to configure the Wiki.js Exporter:
 
-1. Environment variables in a `.env` file:
-   - `WIKIJS_HOST`: Your Wiki.js base URL (e.g., `https://wiki.example.com`)
-   - `WIKIJS_API_KEY`: Your API token
-   - `GEMINI_API_KEY`: Your Google Gemini API key (for content analysis)
+1. **Configuration File**: Use the `wikijs init` command to generate a template configuration file.
+2. **Command Line Options**: Pass options directly when running commands.
+3. **Environment Variables**: Configure through environment variables.
 
-2. Command line options (these override any environment variables):
-   - `--url`: Your Wiki.js base URL
-   - `--token`: Your API token
-   - `--gemini-key`: Your Gemini API key
+The tool follows this precedence: Command Line > Config File > Environment Variables
+
+### Configuration File
+
+Run the following command to create a template configuration file:
+
+```bash
+wikijs init
+```
+
+This creates a `wikijs_config.yaml` file with the following structure:
+
+```yaml
+wikijs:
+  host: https://your-wiki-instance.com
+  api_key: YOUR_API_KEY_HERE
+
+export:
+  default_format: markdown
+  default_output: wiki_pages
+  delay: 0.1
+  metadata_file: .wikijs_export_metadata.json
+
+gemini:
+  api_key: YOUR_GEMINI_API_KEY_HERE
+```
+
+You can specify a different path for the configuration file:
+
+```bash
+wikijs init --path custom_config.yaml
+```
+
+### Environment Variables
+
+Set the following environment variables:
+
+* `WIKIJS_HOST`: Base URL of your Wiki.js instance
+* `WIKIJS_API_KEY`: API token with appropriate permissions
+* `GEMINI_API_KEY`: Google Gemini API key (optional, for analysis features)
+
+A convenient way to manage these variables is to create a `.env` file in your working directory:
+
+```
+WIKIJS_HOST=https://your-wiki-instance.com
+WIKIJS_API_KEY=your-api-token
+GEMINI_API_KEY=your-gemini-api-key
+```
+
+The tool will automatically load these variables when run.
 
 ## Usage
 
-The exporter provides several commands for different operations:
-
-### Testing Connection
-
-To test your connection to the Wiki.js API:
+All commands accept a `--config-file` option to specify a custom configuration file:
 
 ```bash
-wikijs test --url https://your-wiki.example.com --token your_api_token
+wikijs <command> --config-file my_config.yaml
 ```
+
+### Initialization
+
+Generate a template configuration file:
+
+```bash
+wikijs init
+```
+
+This command creates three files:
+1. `wikijs_config.yaml` - Main configuration file
+2. `wiki_style_guide.md` - Sample style guide for content analysis
+3. `ai_instructions.md` - AI-specific instructions for content analysis
+
+Options:
+* `--path`: Specify a custom location for the configuration file (default: wikijs_config.yaml)
+* `--force`: Force overwrite if the files already exist
+
+The configuration file includes settings for Wiki.js connection, export options, and AI analysis parameters.
+
+### Test Connection
+
+Verify your Wiki.js connection:
+
+```bash
+wikijs test
+```
+
+Options:
+* `--url`: Override the Wiki.js URL
+* `--token`: Override the API token
+* `--config-file`: Path to custom configuration file
+
+### List Pages
+
+List all pages in your Wiki.js instance:
+
+```bash
+wikijs list
+```
+
+Options:
+* `--url`: Override the Wiki.js URL
+* `--token`: Override the API token
+* `--config-file`: Path to custom configuration file
+
+### Export Pages
+
+Export all pages from Wiki.js:
+
+```bash
+wikijs export
+```
+
+Options:
+* `--url`: Override the Wiki.js URL
+* `--token`: Override the API token
+* `--output`: Custom output location
+* `--delay`: Adjust request delay (seconds)
+* `--debug`: Enable debug output
+* `--format`: Choose output format (json, markdown, html)
+* `--incremental/--full`: Enable/disable incremental export (default: incremental)
+* `--force-full`: Force a full export
+* `--reset-hashes`: Reset all content hashes (forces recomputing)
+* `--metadata-file`: Custom location for metadata file
+* `--config-file`: Path to custom configuration file
+
+### Analyze Content
+
+Run semantic analysis on exported content:
+
+```bash
+wikijs analyze
+```
+
+This command uses the Gemini AI to analyze Wiki.js content against a style guide, identifying issues and suggesting improvements.
+
+Options:
+* `--format`: Input format (json, markdown)
+* `--output`: Custom output location
+* `--input`: Input file or directory
+* `--api-key`: Google Gemini API key
+* `--style-guide`: Custom path to style guide file
+* `--ai-guide`: Custom path to AI instructions file
+* `--config-file`: Path to custom configuration file
+
+The analysis process:
+1. Loads content from the specified source (JSON or Markdown files)
+2. Reads the style guide and AI instructions (created by `wikijs init`)
+3. Analyzes each page for style compliance
+4. Generates a report with issues and suggestions
+
+Results include:
+- A summary of each page's compliance with the style guide
+- Specific discrepancies with location and severity
+- Suggested corrections for each issue
+- An overall compliance score for each page
+
+### Generate Report
+
+Generate an HTML report from existing analysis results:
+
+```bash
+# Using an explicit input file
+wikijs report analysis_results.json
+
+# Using configuration defaults
+wikijs report
+```
+
+This command takes previously generated analysis results (JSON) and creates a visual HTML report without needing to re-run the analysis.
+
+Options:
+* `--output`, `-o`: Custom output path for the HTML report (default: analysis_report.html)
+* `--style-guide`: Path to style guide file to include in the report
+* `--config-file`: Path to custom configuration file
+
+If you don't specify an input file, the command will use the default paths from your configuration. This means you can simply run `wikijs report` after running `wikijs analyze` to generate an HTML report from the latest analysis results.
+
+This is useful when:
+- You want to generate a report with different formatting
+- You need to share results with team members
+- You've manually edited the analysis results
+- You want to create multiple report versions from the same analysis
+
+#### Style Guide and AI Instructions
+
+The `wikijs init` command creates two files for content analysis:
+
+1. **Style Guide** (`wiki_style_guide.md`): Contains human-readable guidelines for writing wiki content. This is the primary reference for what "good" content looks like.
+
+2. **AI Instructions** (`ai_instructions.md`): Contains instructions specifically for the AI analyzer, such as how to prioritize issues, what context to consider, and special analysis requirements.
+
+You can customize both files to match your organization's style requirements and content standards.
 
 ### Listing Pages (Metadata Only)
 

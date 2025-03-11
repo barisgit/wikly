@@ -535,32 +535,35 @@ If no discrepancies are found, return an empty array for discrepancies and a com
         except Exception as e:
             print(f"Error saving HTML report: {str(e)}")
     
-    def list_available_models(self) -> List[Dict[str, Any]]:
+    def list_available_models(self) -> List[str]:
         """
         List available Gemini models.
         
         Returns:
-            List of available models
+            List of model identifiers
         """
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={self.api_key}"
+        base_url = "https://generativelanguage.googleapis.com/v1beta/models"
+        url = f"{base_url}?key={self.api_key}"
         
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=15)
             
-            if self.debug:
-                print(f"Debug: Models API response status: {response.status_code}")
+            if response.status_code != 200:
+                print(f"Error: API returned status code {response.status_code}")
+                print(f"Response: {response.text}")
+                return []
             
-            response.raise_for_status()
-            models = response.json().get('models', [])
+            data = response.json()
+            models = []
             
-            # Filter for Gemini models only
-            gemini_models = [m for m in models if 'gemini' in m.get('name', '').lower()]
+            # Extract model names
+            for model in data.get('models', []):
+                name = model.get('name', '').split('/')[-1]
+                if name.startswith('gemini'):
+                    models.append(name)
             
-            if self.debug:
-                print(f"Debug: Found {len(gemini_models)} Gemini models")
-                
-            return gemini_models
+            return sorted(models)
             
-        except requests.exceptions.RequestException as e:
-            print(f"Error retrieving Gemini models: {str(e)}")
+        except Exception as e:
+            print(f"Error fetching Gemini models: {str(e)}")
             return [] 

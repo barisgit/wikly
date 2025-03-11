@@ -34,8 +34,18 @@ setup(
         'requests>=2.25.0',
         'click>=8.0.0',
         'python-dotenv>=0.15.0',
-        'pathlib>=1.0.1',  # For Path operations in content analysis
+        'pathlib>=1.0.1',
+        'pyyaml>=6.0.1',
+        'markdown>=3.7.0',
     ],
+    extras_require={
+        'dev': [
+            'pytest>=7.0.0',
+            'pytest-mock>=3.10.0',
+            'pytest-cov>=4.0.0',
+            'pytest-asyncio>=0.21.0',
+        ],
+    },
     entry_points={
         'console_scripts': [
             'wikijs=wikijs_exporter.cli:cli',
