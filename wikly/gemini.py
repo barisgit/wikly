@@ -70,6 +70,7 @@ class GeminiAnalyzer:
         
         if self.debug:
             print(f"Debug: Sending content of length {len(content)} to Gemini API using model {self.model}")
+            print(f"Debug: Full prompt length: {len(prompt)} characters")
             
         response = self._call_gemini_api(prompt)
         

@@ -482,7 +482,7 @@ class AnalysisMetadata:
         Update and save metadata after an analysis.
         
         Args:
-            pages: List of pages that were analyzed
+            pages: List of pages or analysis results that were analyzed
         """
         # Update last analysis timestamp
         self.metadata["last_analysis"] = datetime.now().isoformat()
@@ -494,10 +494,60 @@ class AnalysisMetadata:
                 continue
                 
             title = page.get("title", "Unknown")
-            content = page.get("content", "")
             
-            # Calculate content hash
-            content_hash = calculate_content_hash(content) if content else ""
+            # Handle both direct pages and results from analysis
+            content = ""
+            analysis_data = None
+            
+            # First try to get content directly from the page object
+            if "content" in page:
+                content = page.get("content", "")
+            
+            # Check if this is a result object with analysis data
+            if "analysis" in page and isinstance(page["analysis"], dict):
+                analysis_data = page["analysis"]
+            
+            # If we don't have content but have a path, try to load it from the file
+            # This handles the case where we have analysis results but no content
+            if not content:
+                # Determine the likely location of the file based on common patterns
+                possible_file_paths = [
+                    f"wiki_export_markdown/{path}.md",        # Standard markdown export path
+                    f"wiki_pages/{path}.md",                  # Alternative markdown path
+                    f"wiki_export/{path}.md",                 # Another common export path
+                    path if os.path.isfile(path) else None    # Direct path if it's a file
+                ]
+                
+                # Try each possible path
+                for file_path in possible_file_paths:
+                    if file_path and os.path.isfile(file_path):
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                                if self.debug:
+                                    print(f"Debug: Loaded content from {file_path} for hash calculation")
+                                break
+                        except Exception as e:
+                            if self.debug:
+                                print(f"Debug: Could not read {file_path}: {e}")
+            
+            # If we still have no content but we have an existing hash in metadata, preserve it
+            content_hash = ""
+            if not content and path in self.metadata["pages"]:
+                # Preserve the existing hash if we can't get content
+                content_hash = self.metadata["pages"][path].get("content_hash", "")
+                if self.debug:
+                    print(f"Debug: Using previous hash for {path}: {content_hash[:8]}...")
+            elif content:
+                # We have content, calculate a new hash
+                # Extract content without frontmatter for more reliable comparison
+                extracted_content = extract_content_from_file(content)
+                
+                # Calculate content hash using the extracted content
+                content_hash = calculate_content_hash(extracted_content) if extracted_content else ""
+                
+                if self.debug:
+                    print(f"Debug: Calculated new hash for {path}: {content_hash[:8]}...")
             
             # Create or update page metadata
             page_metadata = {
@@ -508,19 +558,18 @@ class AnalysisMetadata:
             }
             
             # Store analysis results if available
-            if "analysis" in page and page["analysis"]:
+            if analysis_data:
                 page_metadata["has_analysis"] = True
                 
                 # Store summary for quick reference
-                if isinstance(page["analysis"], dict):
-                    analysis_data = page["analysis"].get("analysis", {})
-                    if isinstance(analysis_data, dict):
-                        score = analysis_data.get("compliance_score")
-                        if score is not None:
-                            page_metadata["compliance_score"] = score
-                            
-                        discrepancies = analysis_data.get("discrepancies", [])
-                        page_metadata["issue_count"] = len(discrepancies)
+                if "analysis" in analysis_data and isinstance(analysis_data["analysis"], dict):
+                    analysis_results = analysis_data["analysis"]
+                    score = analysis_results.get("compliance_score")
+                    if score is not None:
+                        page_metadata["compliance_score"] = score
+                        
+                    discrepancies = analysis_results.get("discrepancies", [])
+                    page_metadata["issue_count"] = len(discrepancies)
             else:
                 page_metadata["has_analysis"] = False
             
@@ -565,18 +614,29 @@ class AnalysisMetadata:
                     print(f"Debug: Skipping {title} ({path}) - No content")
                 continue
             
+            # Extract content without frontmatter for consistent comparison
+            extracted_content = extract_content_from_file(content)
+            
             # Calculate current content hash
-            current_hash = calculate_content_hash(content)
+            current_hash = calculate_content_hash(extracted_content)
+            
+            # Get metadata for this page
+            page_metadata = self.metadata["pages"].get(path, {})
+            stored_hash = page_metadata.get("content_hash", "")
             
             # Check if page needs analyzing
             if path not in self.metadata["pages"]:
                 update_reason = "Never analyzed"
             elif not self.metadata["pages"][path].get("has_analysis", False):
                 update_reason = "Previous analysis failed or not completed"
-            elif not self.metadata["pages"][path].get("content_hash"):
+            elif not stored_hash:
                 update_reason = "Missing content hash"
-            elif self.metadata["pages"][path].get("content_hash") != current_hash:
+            elif stored_hash != current_hash:
                 update_reason = "Content changed since last analysis"
+                if self.debug:
+                    print(f"Debug: Hash mismatch for {path}")
+                    print(f"  Current hash: {current_hash[:8]}...")
+                    print(f"  Stored hash: {stored_hash[:8]}...")
             
             if update_reason:
                 outdated_pages.append(page)
@@ -605,14 +665,24 @@ class AnalysisMetadata:
     def reset_content_hashes(self) -> None:
         """Reset all content hashes in the metadata to force reanalysis."""
         if self.debug:
-            print(f"Debug: Resetting all content hashes in analysis metadata")
-            
+            print(f"Debug: Resetting all content hashes in metadata")
+        
         # Reset all hashes to empty strings
         for path in self.metadata["pages"]:
+            if self.debug:
+                print(f"Debug: Clearing hash for {path}")
             self.metadata["pages"][path]["content_hash"] = ""
-            
-        if self.debug:
-            print(f"Debug: Reset {len(self.metadata['pages'])} hashes")
+            # Also mark as not having analysis to force reanalysis
+            self.metadata["pages"][path]["has_analysis"] = False
+        
+        # Save changes to file
+        try:
+            with open(self.metadata_file, 'w', encoding='utf-8') as f:
+                json.dump(self.metadata, f, indent=2)
+            if self.debug:
+                print(f"Debug: Saved updated metadata after resetting hashes")
+        except Exception as e:
+            print(f"Warning: Could not save metadata after resetting hashes: {e}")
 
 def save_pages_to_file(pages: List[Dict[str, Any]], output_file: str) -> None:
     """

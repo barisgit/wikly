@@ -108,6 +108,16 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
     output_file = output or "analysis_results.json"
     report_file = report or "analysis_report.html"
     
+    # Load existing results if the output file exists
+    existing_results = []
+    if os.path.exists(output_file):
+        try:
+            with open(output_file, 'r', encoding='utf-8') as f:
+                existing_results = json.load(f)
+            click.echo(f"Loaded existing analysis results from {output_file}")
+        except Exception as e:
+            click.echo(f"Warning: Could not load existing analysis results from {output_file}: {str(e)}")
+    
     # Check if style guide file exists
     if not os.path.exists(style_guide_file):
         click.echo(f"Warning: Style guide file not found at {style_guide_file}. Using default style guide.")
@@ -291,14 +301,27 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
                 else:
                     error_count += 1
                     
-                # Save intermediate results
-                try:
-                    with open(output_file, 'w', encoding='utf-8') as f:
-                        json.dump(results, f, indent=2, ensure_ascii=False)
-                except Exception as e:
-                    if debug:
-                        click.echo(f"Warning: Could not save intermediate results: {str(e)}")
+                # Save intermediate results every 5 pages or if we hit rate limiting
+                if (i + 1) % 5 == 0 or "429" in str(analysis.get("message", "")):
+                    try:
+                        # Create a map of existing results by path
+                        existing_map = {r.get("path"): r for r in existing_results if r.get("path")}
+                        # Create a map of new results by path
+                        new_map = {r.get("path"): r for r in results if r.get("path")}
+                        # Merge results (new results override existing ones)
+                        merged_map = {**existing_map, **new_map}
+                        # Convert back to list
+                        intermediate_results = list(merged_map.values())
                         
+                        # Save intermediate results
+                        with open(output_file, 'w', encoding='utf-8') as f:
+                            json.dump(intermediate_results, f, indent=2, ensure_ascii=False)
+                        if debug:
+                            click.echo(f"\nSaved intermediate results after page {i+1}/{total_pages}")
+                    except Exception as e:
+                        if debug:
+                            click.echo(f"Warning: Could not save intermediate results: {str(e)}")
+                    
             except Exception as e:
                 click.echo(f"\nError analyzing page {title}: {str(e)}")
                 results.append({
@@ -310,14 +333,6 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
                     }
                 })
                 error_count += 1
-                
-                # Save intermediate results even for errors
-                try:
-                    with open(output_file, 'w', encoding='utf-8') as f:
-                        json.dump(results, f, indent=2, ensure_ascii=False)
-                except Exception as save_err:
-                    if debug:
-                        click.echo(f"Warning: Could not save intermediate results after error: {str(save_err)}")
     
     # Save analysis metadata for the pages we processed
     # CHANGE: Pass results rather than pages_to_analyze to include the analysis results
@@ -326,30 +341,32 @@ def analyze_content(format: str, output: Optional[str], report: Optional[str], i
     # If we only analyzed some pages but need the complete results set
     if incremental and len(pages_to_analyze) < len(data):
         try:
-            # Try to load existing results to merge with new ones
-            if os.path.exists(output_file):
-                with open(output_file, 'r', encoding='utf-8') as f:
-                    existing_results = json.load(f)
-                
-                # Create a map of existing results by path
-                existing_map = {r.get("path"): r for r in existing_results if r.get("path")}
-                
-                # Create a map of new results by path
-                new_map = {r.get("path"): r for r in results if r.get("path")}
-                
-                # Merge results (new results override existing ones)
-                merged_map = {**existing_map, **new_map}
-                
-                # Convert back to list
-                results = list(merged_map.values())
-                
-                click.echo(f"Merged new analysis results with existing ones ({len(results)} total pages)")
+            # Create a map of existing results by path
+            existing_map = {r.get("path"): r for r in existing_results if r.get("path")}
+
+            # Create a map of new results by path
+            new_map = {r.get("path"): r for r in results if r.get("path")}
+
+            # Merge results (new results override existing ones)
+            merged_map = {**existing_map, **new_map}
+
+            # Convert back to list
+            results = list(merged_map.values())
+
+            click.echo(f"Merged new analysis results with existing ones ({len(results)} total pages)")
         except Exception as e:
             click.echo(f"Warning: Could not merge with existing results: {str(e)}")
     
-    # Save final results
+    # Save final results - NOW SAVES MERGED RESULTS
     with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
+        # Make sure we don't save an empty results array which would erase previous results
+        if results:
+            json.dump(results, f, indent=2, ensure_ascii=False)
+        else:
+            click.echo("Warning: No results to save. Keeping previous results intact.")
+            # Load existing results and save them back
+            if existing_results:
+                json.dump(existing_results, f, indent=2, ensure_ascii=False)
     
     click.echo(f"\nAnalysis complete. Results saved to {output_file}")
     click.echo(f"Summary: {success_count} pages analyzed successfully, {error_count} pages with errors")
